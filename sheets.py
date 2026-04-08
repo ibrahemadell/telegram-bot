@@ -1,4 +1,6 @@
 import gspread
+import json
+import os
 from google.oauth2.service_account import Credentials
 from datetime import datetime
 
@@ -8,7 +10,12 @@ SCOPES = [
 ]
 
 def connect_sheets():
-    creds = Credentials.from_service_account_file('credentials.json', scopes=SCOPES)
+    creds_json = os.environ.get('GOOGLE_CREDENTIALS')
+    if creds_json:
+        creds_dict = json.loads(creds_json)
+        creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    else:
+        creds = Credentials.from_service_account_file('credentials.json', scopes=SCOPES)
     client = gspread.authorize(creds)
     sheet = client.open("حسابات البوت")
     return sheet
