@@ -104,7 +104,7 @@ def update_suppliers_summary(sheet):
         names = list(set([r['الاسم'] for r in records if r['الاسم']]))
         for name in names:
             b = get_person_balance(sheet, "الخزنة_الموردين", name)
-            status = "عليه" if b > 0 else "ليه عندنا" if b < 0 else "صفر"
+            status = "ليه عندنا" if b > 0 else "دفعنا له زيادة" if b < 0 else "صفر"
             ws.append_row([name, status, abs(b)])
     except:
         pass
@@ -138,12 +138,12 @@ def get_full_summary(sheet):
             msg += "\n👥 *العملاء:*\n"
             for name in names:
                 b = get_person_balance(sheet, "الخزنة_العملاء", name)
-                if b > 0:
-                    msg += f"  • {name}: عليه {b} جنيه\n"
-                elif b < 0:
-                    msg += f"  • {name}: ليه عندنا {abs(b)} جنيه\n"
-                else:
-                    msg += f"  • {name}: صفر\n"
+            if b > 0:
+                 msg += f"  • {name}: ليه عندنا {b} جنيه\n"
+            elif b < 0:
+                 msg += f"  • {name}: دفعنا له زيادة {abs(b)} جنيه\n"
+            else:
+                 msg += f"  • {name}: صفر\n"
     except:
         pass
 
