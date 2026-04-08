@@ -217,3 +217,20 @@ def delete_last_record(sheet, worksheet_name, row_index):
     """حذف صف معين"""
     ws = sheet.worksheet(worksheet_name)
     ws.delete_rows(row_index + 2)  # +2 عشان الهيدر
+    def get_all_clients(sheet):
+    """جلب كل أسماء العملاء"""
+    try:
+        records = sheet.worksheet("الخزنة_العملاء").get_all_records()
+        names = list(set([r['الاسم'] for r in records if r['الاسم']]))
+        return sorted(names)
+    except:
+        return []
+
+def get_all_suppliers(sheet):
+    """جلب كل أسماء الموردين"""
+    try:
+        records = sheet.worksheet("الخزنة_الموردين").get_all_records()
+        names = list(set([r['الاسم'] for r in records if r['الاسم']]))
+        return sorted(names)
+    except:
+        return []

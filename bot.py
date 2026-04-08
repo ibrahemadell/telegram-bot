@@ -2,8 +2,9 @@ from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (ApplicationBuilder, CommandHandler, MessageHandler, 
                           ConversationHandler, ContextTypes, filters)
 from sheets import (connect_sheets, add_transaction, add_client, add_supplier,
-                   get_balance, get_person_balance, get_full_summary, 
-                   add_person, delete_person, get_last_records, delete_last_record)
+                   get_balance, get_person_balance, get_full_summary,
+                   add_person, delete_person, get_last_records, 
+                   delete_last_record, get_all_clients, get_all_suppliers)
 
 TOKEN = "8603771009:AAE46Fv4QEU_tsSGlvnN0kPbD1ojDnZnVCA"
 sheet = connect_sheets()
@@ -50,25 +51,49 @@ async def get_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ============ العملاء ============
 
 async def ameel_deen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👤 اسم العميل؟", reply_markup=ReplyKeyboardRemove())
+    names = get_all_clients(sheet)
     context.user_data['action'] = 'ameel_deen'
+    if names:
+        keyboard = [[name] for name in names]
+        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
+        await update.message.reply_text("👤 اختار العميل:", reply_markup=reply_markup)
+    else:
+        await update.message.reply_text("👤 اسم العميل؟", reply_markup=ReplyKeyboardRemove())
     return NAME
 
 async def ameel_dafa3(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👤 اسم العميل؟", reply_markup=ReplyKeyboardRemove())
+    names = get_all_clients(sheet)
     context.user_data['action'] = 'ameel_dafa3'
+    if names:
+        keyboard = [[name] for name in names]
+        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
+        await update.message.reply_text("👤 اختار العميل:", reply_markup=reply_markup)
+    else:
+        await update.message.reply_text("👤 اسم العميل؟", reply_markup=ReplyKeyboardRemove())
     return NAME
 
 # ============ الموردين ============
 
 async def mwrd_madyoniya(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🏭 اسم المورد؟", reply_markup=ReplyKeyboardRemove())
+    names = get_all_suppliers(sheet)
     context.user_data['action'] = 'mwrd_madyoniya'
+    if names:
+        keyboard = [[name] for name in names]
+        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
+        await update.message.reply_text("🏭 اختار المورد:", reply_markup=reply_markup)
+    else:
+        await update.message.reply_text("🏭 اسم المورد؟", reply_markup=ReplyKeyboardRemove())
     return NAME
 
 async def mwrd_dafa3(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🏭 اسم المورد؟", reply_markup=ReplyKeyboardRemove())
+    names = get_all_suppliers(sheet)
     context.user_data['action'] = 'mwrd_dafa3'
+    if names:
+        keyboard = [[name] for name in names]
+        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
+        await update.message.reply_text("🏭 اختار المورد:", reply_markup=reply_markup)
+    else:
+        await update.message.reply_text("🏭 اسم المورد؟", reply_markup=ReplyKeyboardRemove())
     return NAME
 
 async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -109,13 +134,25 @@ async def raseed(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"{emoji} رصيد الخزنة: {balance} جنيه")
 
 async def hesab_ameel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👤 اسم العميل؟", reply_markup=ReplyKeyboardRemove())
+    names = get_all_clients(sheet)
     context.user_data['action'] = 'hesab_ameel'
+    if names:
+        keyboard = [[name] for name in names]
+        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
+        await update.message.reply_text("👤 اختار العميل:", reply_markup=reply_markup)
+    else:
+        await update.message.reply_text("👤 اسم العميل؟", reply_markup=ReplyKeyboardRemove())
     return NAME_AMOUNT_TYPE
 
 async def hesab_mwrd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🏭 اسم المورد؟", reply_markup=ReplyKeyboardRemove())
+    names = get_all_suppliers(sheet)
     context.user_data['action'] = 'hesab_mwrd'
+    if names:
+        keyboard = [[name] for name in names]
+        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
+        await update.message.reply_text("🏭 اختار المورد:", reply_markup=reply_markup)
+    else:
+        await update.message.reply_text("🏭 اسم المورد؟", reply_markup=ReplyKeyboardRemove())
     return NAME_AMOUNT_TYPE
 
 async def get_hesab(update: Update, context: ContextTypes.DEFAULT_TYPE):
