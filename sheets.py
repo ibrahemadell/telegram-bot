@@ -31,12 +31,20 @@ def add_client(sheet, name, amount, type):
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     ws.append_row([now, name, type, amount])
     update_clients_summary(sheet)
+    
+    # تأثير على الخزنة تلقائي
+    if type == "دفع":
+        add_transaction(sheet, "دخل", amount, f"دفعة من عميل: {name}")
 
 def add_supplier(sheet, name, amount, type):
     ws = sheet.worksheet("الخزنة_الموردين")
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     ws.append_row([now, name, type, amount])
     update_suppliers_summary(sheet)
+    
+    # تأثير على الخزنة تلقائي
+    if type == "دفع":
+        add_transaction(sheet, "صرف", amount, f"دفعة لمورد: {name}")
 
 def get_balance(sheet):
     ws = sheet.worksheet("الخزنة")
