@@ -3,13 +3,13 @@ from telegram.ext import (ApplicationBuilder, CommandHandler, MessageHandler,
                           ConversationHandler, ContextTypes, filters)
 from sheets import (connect_sheets, add_transaction, add_client, add_supplier,
                    get_balance, get_person_balance, get_full_summary, 
-                   add_person, delete_person)
+                   add_person, delete_person, get_last_records, delete_last_record)
 
 TOKEN = "8603771009:AAE46Fv4QEU_tsSGlvnN0kPbD1ojDnZnVCA"
 sheet = connect_sheets()
 
 # مراحل المحادثة
-AMOUNT, DESCRIPTION, NAME, NAME_AMOUNT, NAME_AMOUNT_TYPE = range(5)
+AMOUNT, DESCRIPTION, NAME, NAME_AMOUNT, NAME_AMOUNT_TYPE , SELECT_RECORD= range(6)
 
 # ============ الخزنة ============
 
@@ -207,8 +207,74 @@ async def get_hesab_or_add_del(update: Update, context: ContextTypes.DEFAULT_TYP
     action = context.user_data.get('action')
     if action in ['add_ameel', 'add_mwrd', 'del_ameel', 'del_mwrd']:
         return await handle_add_del(update, context)
+    elif action == 'del_record_confirm':
+        return await confirm_delete_record(update, context)
     else:
         return await get_hesab(update, context)
+# ============ delete ============    
+async def del_record(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        ["🏦 الخزنة"],
+        ["👥 العملاء"],
+        ["🏭 الموردين"]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
+    await update.message.reply_text("اختار من أي شيت عايز تمسح؟", reply_markup=reply_markup)
+    return SELECT_RECORD
+
+async def select_sheet_to_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    choice = update.message.text
+    
+    if "الخزنة" in choice:
+        worksheet = "الخزنة"
+    elif "العملاء" in choice:
+        worksheet = "الخزنة_العملاء"
+    elif "الموردين" in choice:
+        worksheet = "الخزنة_الموردين"
+    else:
+        await update.message.reply_text("❌ اختيار غلط")
+        return ConversationHandler.END
+
+    context.user_data['del_worksheet'] = worksheet
+    records = get_last_records(sheet, worksheet)
+    
+    if not records:
+        await update.message.reply_text("❌ مفيش حركات")
+        return ConversationHandler.END
+
+    msg = "اختار رقم الحركة اللي عايز تمسحها:\n\n"
+    for i, r in enumerate(records):
+        if worksheet == "الخزنة":
+            msg += f"{i+1}. {r['التاريخ']} | {r['النوع']} | {r['المبلغ']} | {r['الوصف']}\n"
+        else:
+            msg += f"{i+1}. {r['التاريخ']} | {r['الاسم']} | {r['النوع']} | {r['المبلغ']}\n"
+
+    context.user_data['del_records'] = records
+    keyboard = [[str(i+1) for i in range(len(records))]]
+    await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+    return NAME_AMOUNT_TYPE
+
+async def confirm_delete_record(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        choice = int(update.message.text) - 1
+        records = context.user_data['del_records']
+        worksheet = context.user_data['del_worksheet']
+        
+        ws_records = sheet.worksheet(worksheet).get_all_records()
+        target = records[choice]
+        
+        # إيجاد الصف الحقيقي في الشيت
+        for i, row in enumerate(ws_records):
+            if row == target:
+                delete_last_record(sheet, worksheet, i)
+                await update.message.reply_text("✅ تم حذف الحركة", reply_markup=ReplyKeyboardRemove())
+                return ConversationHandler.END
+        
+        await update.message.reply_text("❌ مش لاقي الحركة دي")
+    except:
+        await update.message.reply_text("❌ اختيار غلط")
+    
+    return ConversationHandler.END    
 # ============ تشغيل البوت ============
 
 app = ApplicationBuilder().token(TOKEN).build()
@@ -227,6 +293,7 @@ conv_handler = ConversationHandler(
         CommandHandler("add_mwrd", add_mwrd),
         CommandHandler("del_ameel", del_ameel),
         CommandHandler("del_mwrd", del_mwrd),
+        CommandHandler("del_record", del_record),
     ],
     states={
         AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_amount)],
@@ -234,6 +301,7 @@ conv_handler = ConversationHandler(
         NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
         NAME_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name_amount)],
         NAME_AMOUNT_TYPE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_hesab_or_add_del)],
+        SELECT_RECORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, select_sheet_to_delete)],
     },
     fallbacks=[CommandHandler("cancel", cancel)]
 )

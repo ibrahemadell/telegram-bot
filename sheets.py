@@ -206,3 +206,14 @@ def delete_person(sheet, name, person_type):
         update_suppliers_summary(sheet)
     
     return True
+
+def get_last_records(sheet, worksheet_name, limit=5):
+    """جلب آخر حركات"""
+    ws = sheet.worksheet(worksheet_name)
+    records = ws.get_all_records()
+    return records[-limit:] if len(records) >= limit else records
+
+def delete_last_record(sheet, worksheet_name, row_index):
+    """حذف صف معين"""
+    ws = sheet.worksheet(worksheet_name)
+    ws.delete_rows(row_index + 2)  # +2 عشان الهيدر
