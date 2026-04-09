@@ -20,6 +20,25 @@ def connect_sheets():
     sheet = client.open("حسابات البوت")
     return sheet
 
+def add_transaction(sheet, type, amount, description):
+    ws = sheet.worksheet("الخزنة")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    ws.append_row([now, type, amount, description])
+
+def add_client(sheet, name, amount, type):
+    ws = sheet.worksheet("الخزنة_العملاء")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    ws.append_row([now, name, type, amount])
+    if type == "دفع":
+        add_transaction(sheet, "دخل", amount, f"دفعة من عميل: {name}")
+
+def add_supplier(sheet, name, amount, type):
+    ws = sheet.worksheet("الخزنة_الموردين")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    ws.append_row([now, name, type, amount])
+    if type == "دفع":
+        add_transaction(sheet, "صرف", amount, f"دفعة لمورد: {name}")
+
 def get_balance(sheet):
     ws = sheet.worksheet("الخزنة")
     records = ws.get_all_records()
