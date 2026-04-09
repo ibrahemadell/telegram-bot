@@ -31,8 +31,6 @@ def add_client(sheet, name, amount, type):
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     ws.append_row([now, name, type, amount])
     update_clients_summary(sheet)
-    
-    # تأثير على الخزنة تلقائي
     if type == "دفع":
         add_transaction(sheet, "دخل", amount, f"دفعة من عميل: {name}")
 
@@ -41,8 +39,6 @@ def add_supplier(sheet, name, amount, type):
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     ws.append_row([now, name, type, amount])
     update_suppliers_summary(sheet)
-    
-    # تأثير على الخزنة تلقائي
     if type == "دفع":
         add_transaction(sheet, "صرف", amount, f"دفعة لمورد: {name}")
 
@@ -70,15 +66,12 @@ def get_person_balance(sheet, worksheet_name, name):
     return balance
 
 def update_clients_summary(sheet):
-    """تحديث تاب ملخص العملاء"""
     try:
         ws = sheet.worksheet("العملاء")
     except:
         ws = sheet.add_worksheet(title="العملاء", rows=200, cols=3)
-
     ws.clear()
     ws.append_row(["الاسم", "الحالة", "المبلغ"])
-
     try:
         records = sheet.worksheet("الخزنة_العملاء").get_all_records()
         names = list(set([r['الاسم'] for r in records if r['الاسم']]))
@@ -90,15 +83,12 @@ def update_clients_summary(sheet):
         pass
 
 def update_suppliers_summary(sheet):
-    """تحديث تاب ملخص الموردين"""
     try:
         ws = sheet.worksheet("الموردين")
     except:
         ws = sheet.add_worksheet(title="الموردين", rows=200, cols=3)
-
     ws.clear()
     ws.append_row(["الاسم", "الحالة", "المبلغ"])
-
     try:
         records = sheet.worksheet("الخزنة_الموردين").get_all_records()
         names = list(set([r['الاسم'] for r in records if r['الاسم']]))
@@ -110,21 +100,17 @@ def update_suppliers_summary(sheet):
         pass
 
 def update_summary(sheet):
-    """تحديث تاب الملخص الكلي"""
     try:
         ws = sheet.worksheet("ملخص")
     except:
         ws = sheet.add_worksheet(title="ملخص", rows=50, cols=3)
-
     ws.clear()
     ws.append_row(["البند", "الحالة", "المبلغ"])
-
     balance = get_balance(sheet)
     status = "موجب" if balance >= 0 else "سالب"
     ws.append_row(["رصيد الخزنة", status, balance])
 
 def get_full_summary(sheet):
-    """جلب الملخص الكامل لإرساله على تيليجرام"""
     balance = get_balance(sheet)
     emoji = "📈" if balance >= 0 else "📉"
     msg = f"📊 *ملخص الحسابات*\n\n"
@@ -138,12 +124,12 @@ def get_full_summary(sheet):
             msg += "\n👥 *العملاء:*\n"
             for name in names:
                 b = get_person_balance(sheet, "الخزنة_العملاء", name)
-            if b > 0:
-                 msg += f"  • {name}: ليه عندنا {b} جنيه\n"
-            elif b < 0:
-                 msg += f"  • {name}: دفعنا له زيادة {abs(b)} جنيه\n"
-            else:
-                 msg += f"  • {name}: صفر\n"
+                if b > 0:
+                    msg += f"  • {name}: عليه {b} جنيه\n"
+                elif b < 0:
+                    msg += f"  • {name}: ليه عندنا {abs(b)} جنيه\n"
+                else:
+                    msg += f"  • {name}: صفر\n"
     except:
         pass
 
@@ -156,24 +142,23 @@ def get_full_summary(sheet):
             for name in names:
                 b = get_person_balance(sheet, "الخزنة_الموردين", name)
                 if b > 0:
-                    msg += f"  • {name}: عليه {b} جنيه\n"
+                    msg += f"  • {name}: ليه عندنا {b} جنيه\n"
                 elif b < 0:
-                    msg += f"  • {name}: ليه عندنا {abs(b)} جنيه\n"
+                    msg += f"  • {name}: دفعنا له زيادة {abs(b)} جنيه\n"
                 else:
                     msg += f"  • {name}: صفر\n"
     except:
         pass
 
     return msg
+
 def add_person(sheet, name, person_type):
-    """إضافة عميل أو مورد جديد"""
     worksheet_name = "الخزنة_العملاء" if person_type == "عميل" else "الخزنة_الموردين"
     ws = sheet.worksheet(worksheet_name)
     records = ws.get_all_records()
     names = [r['الاسم'] for r in records]
     if name in names:
-        return False  # موجود بالفعل
-    # مش محتاج نضيف صف، بس نحدث الملخص
+        return False
     if person_type == "عميل":
         update_clients_summary(sheet)
     else:
@@ -181,44 +166,34 @@ def add_person(sheet, name, person_type):
     return True
 
 def delete_person(sheet, name, person_type):
-    """حذف كل سجلات عميل أو مورد"""
     worksheet_name = "الخزنة_العملاء" if person_type == "عميل" else "الخزنة_الموردين"
     ws = sheet.worksheet(worksheet_name)
     records = ws.get_all_records()
     names = [r['الاسم'] for r in records]
-    
     if name not in names:
-        return False  # مش موجود
-    
-    # حذف كل الصفوف اللي فيها الاسم ده
+        return False
     rows_to_delete = []
     for i, row in enumerate(records):
         if row['الاسم'] == name:
-            rows_to_delete.append(i + 2)  # +2 عشان الهيدر والـ index
-    
-    # نحذف من تحت لفوق عشان الأرقام محتشش
+            rows_to_delete.append(i + 2)
     for row_index in reversed(rows_to_delete):
         ws.delete_rows(row_index)
-    
     if person_type == "عميل":
         update_clients_summary(sheet)
     else:
         update_suppliers_summary(sheet)
-    
     return True
 
 def get_last_records(sheet, worksheet_name, limit=5):
-    """جلب آخر حركات"""
     ws = sheet.worksheet(worksheet_name)
     records = ws.get_all_records()
     return records[-limit:] if len(records) >= limit else records
 
 def delete_last_record(sheet, worksheet_name, row_index):
-    """حذف صف معين"""
     ws = sheet.worksheet(worksheet_name)
-    ws.delete_rows(row_index + 2)  # +2 عشان الهيدر
-    def get_all_clients(sheet):
-    """جلب كل أسماء العملاء"""
+    ws.delete_rows(row_index + 2)
+
+def get_all_clients(sheet):
     try:
         records = sheet.worksheet("الخزنة_العملاء").get_all_records()
         names = list(set([r['الاسم'] for r in records if r['الاسم']]))
@@ -227,7 +202,6 @@ def delete_last_record(sheet, worksheet_name, row_index):
         return []
 
 def get_all_suppliers(sheet):
-    """جلب كل أسماء الموردين"""
     try:
         records = sheet.worksheet("الخزنة_الموردين").get_all_records()
         names = list(set([r['الاسم'] for r in records if r['الاسم']]))
