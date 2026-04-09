@@ -20,28 +20,6 @@ def connect_sheets():
     sheet = client.open("حسابات البوت")
     return sheet
 
-def add_transaction(sheet, type, amount, description):
-    ws = sheet.worksheet("الخزنة")
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    ws.append_row([now, type, amount, description])
-    update_summary(sheet)
-
-def add_client(sheet, name, amount, type):
-    ws = sheet.worksheet("الخزنة_العملاء")
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    ws.append_row([now, name, type, amount])
-    update_clients_summary(sheet)
-    if type == "دفع":
-        add_transaction(sheet, "دخل", amount, f"دفعة من عميل: {name}")
-
-def add_supplier(sheet, name, amount, type):
-    ws = sheet.worksheet("الخزنة_الموردين")
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    ws.append_row([now, name, type, amount])
-    update_suppliers_summary(sheet)
-    if type == "دفع":
-        add_transaction(sheet, "صرف", amount, f"دفعة لمورد: {name}")
-
 def get_balance(sheet):
     ws = sheet.worksheet("الخزنة")
     records = ws.get_all_records()
@@ -195,16 +173,19 @@ def delete_last_record(sheet, worksheet_name, row_index):
 
 def get_all_clients(sheet):
     try:
-        records = sheet.worksheet("الخزنة_العملاء").get_all_records()
-        names = list(set([r['الاسم'] for r in records if r['الاسم']]))
+        # جيب من تاب العملاء المسمى مباشرة
+        ws = sheet.worksheet("العملاء")
+        records = ws.get_all_records()
+        names = [r['الاسم'] for r in records if r['الاسم'] and r['الاسم'] != 'الاسم']
         return sorted(names)
     except:
         return []
 
 def get_all_suppliers(sheet):
     try:
-        records = sheet.worksheet("الخزنة_الموردين").get_all_records()
-        names = list(set([r['الاسم'] for r in records if r['الاسم']]))
+        ws = sheet.worksheet("الموردين")
+        records = ws.get_all_records()
+        names = [r['الاسم'] for r in records if r['الاسم'] and r['الاسم'] != 'الاسم']
         return sorted(names)
     except:
         return []
