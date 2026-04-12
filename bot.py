@@ -16,7 +16,7 @@ sheet = connect_sheets()
 
 (AMOUNT, DESCRIPTION, NAME, NAME_AMOUNT, NAME_AMOUNT_TYPE, SELECT_RECORD,
  SARF_TYPE, MASROF_TYPE, BAND_NAME, MWZF_SALARY, MWZF_ACTION,
- MWZF_AMOUNT, OKHRA_AMOUNT, OKHRA_NOTE) = range(14)
+ MWZF_AMOUNT, OKHRA_AMOUNT, OKHRA_NOTE, MWZF_CONFIRM) = range(15)
 
 # ============ الخزنة ============
 
@@ -292,9 +292,60 @@ async def get_mwzf_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not mwzf_type:
         await update.message.reply_text("❌ اختيار غلط")
         return ConversationHandler.END
+
     context.user_data['mwzf_type'] = mwzf_type
-    await update.message.reply_text(f"💰 كام المبلغ؟", reply_markup=ReplyKeyboardRemove())
+    name = context.user_data['name']
+
+    # لو مرتب نحسب الباقي ونطلب تأكيد
+    if mwzf_type == "مرتب":
+        data = get_employee_balance(sheet, name)
+        if data:
+            net = data['salary'] + data['bonuses'] - data['advances'] - data['deductions'] - data['total_paid']
+            if net <= 0:
+                await update.message.reply_text(
+                    f"⚠️ {name} مفيش مرتب متبقي!\n"
+                    f"المرتب الأسبوعي: {data['salary']} جنيه\n"
+                    f"سلف: {data['advances']} جنيه\n"
+                    f"خصومات: {data['deductions']} جنيه\n"
+                    f"مكافآت: {data['bonuses']} جنيه\n"
+                    f"الباقي: {net} جنيه",
+                    reply_markup=ReplyKeyboardRemove()
+                )
+                return ConversationHandler.END
+
+            context.user_data['mwzf_net'] = net
+            keyboard = [["✅ تأكيد"], ["❌ إلغاء"]]
+            await update.message.reply_text(
+                f"👷 *{name}*\n\n"
+                f"💰 المرتب الأسبوعي: {data['salary']} جنيه\n"
+                f"🎁 مكافآت: {data['bonuses']} جنيه\n"
+                f"💳 سلف: {data['advances']} جنيه\n"
+                f"✂️ خصومات: {data['deductions']} جنيه\n"
+                f"✅ تم صرف: {data['total_paid']} جنيه\n\n"
+                f"💵 *الباقي: {net} جنيه*\n\nتأكيد الصرف؟",
+                parse_mode='Markdown',
+                reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
+            )
+            return MWZF_CONFIRM
+
+    await update.message.reply_text("💰 كام المبلغ؟", reply_markup=ReplyKeyboardRemove())
     return MWZF_AMOUNT
+
+async def get_mwzf_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    choice = update.message.text
+    name = context.user_data['name']
+    net = context.user_data['mwzf_net']
+
+    if "تأكيد" in choice:
+        add_employee_transaction(sheet, name, "مرتب", net)
+        await update.message.reply_text(
+            f"✅ تم صرف مرتب {name}: {net} جنيه",
+            reply_markup=ReplyKeyboardRemove()
+        )
+    else:
+        await update.message.reply_text("❌ تم الإلغاء", reply_markup=ReplyKeyboardRemove())
+
+    return ConversationHandler.END
 
 async def get_mwzf_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -511,7 +562,8 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app = ApplicationBuilder().token(TOKEN).build()
 
 conv_handler = ConversationHandler(
-    entry_points=[
+    fallbacks=[
+        CommandHandler("cancel", cancel),
         CommandHandler("dakhl", dakhl),
         CommandHandler("sarf", sarf),
         CommandHandler("ameel_deen", ameel_deen),
@@ -529,7 +581,7 @@ conv_handler = ConversationHandler(
         CommandHandler("hesab_mwzf", hesab_mwzf),
         CommandHandler("add_band", add_band_cmd),
         CommandHandler("del_band", del_band_cmd),
-    ],
+        ],
     states={
         AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_amount)],
         DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_description)],
@@ -544,6 +596,7 @@ conv_handler = ConversationHandler(
         MWZF_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_mwzf_amount)],
         OKHRA_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_okhra_amount)],
         OKHRA_NOTE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_okhra_note)],
+        MWZF_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_mwzf_confirm)],
     },
     fallbacks=[CommandHandler("cancel", cancel)]
 )
