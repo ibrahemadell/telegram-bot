@@ -55,6 +55,21 @@ def get_all_clients(sheet):
     except:
         return []
 
+def get_clients_total(sheet):
+    """إجمالي الفلوس اللي للعملاء عندنا"""
+    try:
+        names = get_all_clients(sheet)
+        total = 0
+        details = []
+        for name in names:
+            b = get_person_balance(sheet, "الخزنة_العملاء", name)
+            if b > 0:
+                total += b
+                details.append(f"  • {name}: {b} جنيه")
+        return total, details
+    except:
+        return 0, []
+
 # ============ الموردين ============
 
 def add_supplier(sheet, name, amount, type):
@@ -72,6 +87,21 @@ def get_all_suppliers(sheet):
     except:
         return []
 
+def get_suppliers_total(sheet):
+    """إجمالي المديونيات اللي علينا للموردين"""
+    try:
+        names = get_all_suppliers(sheet)
+        total = 0
+        details = []
+        for name in names:
+            b = get_person_balance(sheet, "الخزنة_الموردين", name)
+            if b > 0:
+                total += b
+                details.append(f"  • {name}: {b} جنيه")
+        return total, details
+    except:
+        return 0, []
+
 # ============ الأرصدة ============
 
 def get_person_balance(sheet, worksheet_name, name):
@@ -86,7 +116,7 @@ def get_person_balance(sheet, worksheet_name, name):
                 balance -= float(row['المبلغ'])
     return balance
 
-# ============ إضافة وحذف ============
+# ============ إضافة وحذف عميل/مورد ============
 
 def add_person(sheet, name, person_type):
     tab_name = "ليست_العملاء" if person_type == "عميل" else "ليست_الموردين"
@@ -95,12 +125,10 @@ def add_person(sheet, name, person_type):
     except:
         ws = sheet.add_worksheet(title=tab_name, rows=200, cols=1)
         ws.append_row(["الاسم"])
-
     records = ws.get_all_records()
     existing = [r['الاسم'] for r in records if r['الاسم']]
     if name in existing:
         return False
-
     ws.append_row([name])
     return True
 
@@ -110,13 +138,157 @@ def delete_person(sheet, name, person_type):
         ws = sheet.worksheet(tab_name)
     except:
         return False
-
     records = ws.get_all_records()
     for i, row in enumerate(records):
         if row['الاسم'] == name:
             ws.delete_rows(i + 2)
             return True
     return False
+
+# ============ الموظفين ============
+
+def get_all_employees(sheet):
+    try:
+        ws = sheet.worksheet("ليست_الموظفين")
+        records = ws.get_all_records()
+        return [(r['الاسم'], float(r['المرتب_الاسبوعي'])) for r in records if r['الاسم']]
+    except:
+        return []
+
+def get_employee_names(sheet):
+    return [e[0] for e in get_all_employees(sheet)]
+
+def add_employee(sheet, name, weekly_salary):
+    try:
+        ws = sheet.worksheet("ليست_الموظفين")
+    except:
+        ws = sheet.add_worksheet(title="ليست_الموظفين", rows=200, cols=2)
+        ws.append_row(["الاسم", "المرتب_الاسبوعي"])
+    records = ws.get_all_records()
+    existing = [r['الاسم'] for r in records if r['الاسم']]
+    if name in existing:
+        return False
+    ws.append_row([name, weekly_salary])
+    return True
+
+def delete_employee(sheet, name):
+    try:
+        ws = sheet.worksheet("ليست_الموظفين")
+    except:
+        return False
+    records = ws.get_all_records()
+    for i, row in enumerate(records):
+        if row['الاسم'] == name:
+            ws.delete_rows(i + 2)
+            return True
+    return False
+
+def add_employee_transaction(sheet, name, type, amount, note=""):
+    """تسجيل حركة موظف - نوع: مرتب/سلفة/مكافأة/خصم"""
+    try:
+        ws = sheet.worksheet("خزنة_الموظفين")
+    except:
+        ws = sheet.add_worksheet(title="خزنة_الموظفين", rows=500, cols=5)
+        ws.append_row(["التاريخ", "الاسم", "النوع", "المبلغ", "النوت"])
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    ws.append_row([now, name, type, amount, note])
+    add_transaction(sheet, "صرف", amount, f"{type} موظف: {name}")
+
+def get_employee_balance(sheet, name):
+    """حساب صافي الموظف للأسبوع"""
+    try:
+        ws = sheet.worksheet("خزنة_الموظفين")
+        records = ws.get_all_records()
+        employees = get_all_employees(sheet)
+        salary = next((e[1] for e in employees if e[0] == name), 0)
+
+        total_paid = 0
+        advances = 0
+        bonuses = 0
+        deductions = 0
+
+        for row in records:
+            if row['الاسم'] == name:
+                amount = float(row['المبلغ'])
+                if row['النوع'] == 'مرتب':
+                    total_paid += amount
+                elif row['النوع'] == 'سلفة':
+                    advances += amount
+                elif row['النوع'] == 'مكافأة':
+                    bonuses += amount
+                elif row['النوع'] == 'خصم':
+                    deductions += amount
+
+        net = salary + bonuses - advances - deductions - total_paid
+        return {
+            'salary': salary,
+            'bonuses': bonuses,
+            'advances': advances,
+            'deductions': deductions,
+            'total_paid': total_paid,
+            'net': net
+        }
+    except:
+        return None
+
+# ============ البنود الثابتة ============
+
+def get_all_bands(sheet):
+    try:
+        ws = sheet.worksheet("ليست_البنود")
+        records = ws.get_all_records()
+        return [r['البند'] for r in records if r['البند']]
+    except:
+        return []
+
+def add_band(sheet, name):
+    try:
+        ws = sheet.worksheet("ليست_البنود")
+    except:
+        ws = sheet.add_worksheet(title="ليست_البنود", rows=200, cols=1)
+        ws.append_row(["البند"])
+    records = ws.get_all_records()
+    existing = [r['البند'] for r in records if r['البند']]
+    if name in existing:
+        return False
+    ws.append_row([name])
+    return True
+
+def delete_band(sheet, name):
+    try:
+        ws = sheet.worksheet("ليست_البنود")
+    except:
+        return False
+    records = ws.get_all_records()
+    for i, row in enumerate(records):
+        if row['البند'] == name:
+            ws.delete_rows(i + 2)
+            return True
+    return False
+
+# ============ المصروفات ============
+
+def add_masrof_edari(sheet, band, amount):
+    """مصروفات إدارية ببند ثابت"""
+    try:
+        ws = sheet.worksheet("خزنة_المصروفات")
+    except:
+        ws = sheet.add_worksheet(title="خزنة_المصروفات", rows=500, cols=5)
+        ws.append_row(["التاريخ", "النوع", "البند", "المبلغ", "النوت"])
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    ws.append_row([now, "إدارية", band, amount, ""])
+    add_transaction(sheet, "صرف", amount, f"مصروفات إدارية: {band}")
+
+def add_masrof_okhra(sheet, amount, note):
+    """مصروفات أخرى"""
+    try:
+        ws = sheet.worksheet("خزنة_المصروفات")
+    except:
+        ws = sheet.add_worksheet(title="خزنة_المصروفات", rows=500, cols=5)
+        ws.append_row(["التاريخ", "النوع", "البند", "المبلغ", "النوت"])
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    ws.append_row([now, "أخرى", "", amount, note])
+    add_transaction(sheet, "صرف", amount, f"مصروفات أخرى: {note}")
 
 # ============ الملخص ============
 
