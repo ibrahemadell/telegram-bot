@@ -56,7 +56,6 @@ def get_all_clients(sheet):
         return []
 
 def get_clients_total(sheet):
-    """إجمالي الفلوس اللي للعملاء عندنا"""
     try:
         names = get_all_clients(sheet)
         total = 0
@@ -88,7 +87,6 @@ def get_all_suppliers(sheet):
         return []
 
 def get_suppliers_total(sheet):
-    """إجمالي المديونيات اللي علينا للموردين"""
     try:
         names = get_all_suppliers(sheet)
         total = 0
@@ -165,8 +163,7 @@ def add_employee(sheet, name, weekly_salary):
         ws = sheet.add_worksheet(title="ليست_الموظفين", rows=200, cols=2)
         ws.append_row(["الاسم", "المرتب_الاسبوعي"])
     records = ws.get_all_records()
-    existing = [r['الاسم'] for r in records if r['الاسم']]
-    if name in existing:
+    if name in [r['الاسم'] for r in records]:
         return False
     ws.append_row([name, weekly_salary])
     return True
@@ -184,7 +181,6 @@ def delete_employee(sheet, name):
     return False
 
 def add_employee_transaction(sheet, name, type, amount, note=""):
-    """تسجيل حركة موظف - نوع: مرتب/سلفة/مكافأة/خصم"""
     try:
         ws = sheet.worksheet("خزنة_الموظفين")
     except:
@@ -195,18 +191,15 @@ def add_employee_transaction(sheet, name, type, amount, note=""):
     add_transaction(sheet, "صرف", amount, f"{type} موظف: {name}")
 
 def get_employee_balance(sheet, name):
-    """حساب صافي الموظف للأسبوع"""
     try:
         ws = sheet.worksheet("خزنة_الموظفين")
         records = ws.get_all_records()
         employees = get_all_employees(sheet)
         salary = next((e[1] for e in employees if e[0] == name), 0)
-
         total_paid = 0
         advances = 0
         bonuses = 0
         deductions = 0
-
         for row in records:
             if row['الاسم'] == name:
                 amount = float(row['المبلغ'])
@@ -218,7 +211,6 @@ def get_employee_balance(sheet, name):
                     bonuses += amount
                 elif row['النوع'] == 'خصم':
                     deductions += amount
-
         net = salary + bonuses - advances - deductions - total_paid
         return {
             'salary': salary,
@@ -248,8 +240,7 @@ def add_band(sheet, name):
         ws = sheet.add_worksheet(title="ليست_البنود", rows=200, cols=1)
         ws.append_row(["البند"])
     records = ws.get_all_records()
-    existing = [r['البند'] for r in records if r['البند']]
-    if name in existing:
+    if name in [r['البند'] for r in records]:
         return False
     ws.append_row([name])
     return True
@@ -269,7 +260,6 @@ def delete_band(sheet, name):
 # ============ المصروفات ============
 
 def add_masrof_edari(sheet, band, amount):
-    """مصروفات إدارية ببند ثابت"""
     try:
         ws = sheet.worksheet("خزنة_المصروفات")
     except:
@@ -280,7 +270,6 @@ def add_masrof_edari(sheet, band, amount):
     add_transaction(sheet, "صرف", amount, f"مصروفات إدارية: {band}")
 
 def add_masrof_okhra(sheet, amount, note):
-    """مصروفات أخرى"""
     try:
         ws = sheet.worksheet("خزنة_المصروفات")
     except:
@@ -297,7 +286,6 @@ def get_full_summary(sheet):
     emoji = "📈" if balance >= 0 else "📉"
     msg = f"📊 *ملخص الحسابات*\n\n"
     msg += f"{emoji} *رصيد الخزنة:* {balance} جنيه\n"
-
     try:
         names = get_all_clients(sheet)
         if names:
@@ -312,7 +300,6 @@ def get_full_summary(sheet):
                     msg += f"  • {name}: صفر\n"
     except:
         pass
-
     try:
         names = get_all_suppliers(sheet)
         if names:
@@ -327,7 +314,6 @@ def get_full_summary(sheet):
                     msg += f"  • {name}: صفر\n"
     except:
         pass
-
     return msg
 
 # ============ حذف حركة ============

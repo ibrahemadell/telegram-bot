@@ -15,8 +15,8 @@ TOKEN = "8603771009:AAE46Fv4QEU_tsSGlvnN0kPbD1ojDnZnVCA"
 sheet = connect_sheets()
 
 (AMOUNT, DESCRIPTION, NAME, NAME_AMOUNT, NAME_AMOUNT_TYPE, SELECT_RECORD,
- SARF_TYPE, MASROF_TYPE, BAND_NAME, MWZF_SALARY, MWZF_ACTION,
- MWZF_AMOUNT, OKHRA_AMOUNT, OKHRA_NOTE, MWZF_CONFIRM) = range(15)
+ SARF_TYPE, MASROF_TYPE, MWZF_SALARY, MWZF_ACTION,
+ MWZF_AMOUNT, OKHRA_AMOUNT, OKHRA_NOTE, MWZF_CONFIRM) = range(14)
 
 # ============ الخزنة ============
 
@@ -56,7 +56,6 @@ async def sarf(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def get_sarf_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     choice = update.message.text
-
     if "مورد" in choice:
         names = get_all_suppliers(sheet)
         if not names:
@@ -66,7 +65,6 @@ async def get_sarf_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[name] for name in names]
         await update.message.reply_text("🏭 اختار المورد:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
         return NAME
-
     elif "موظف" in choice:
         names = get_employee_names(sheet)
         if not names:
@@ -76,18 +74,15 @@ async def get_sarf_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[name] for name in names]
         await update.message.reply_text("👷 اختار الموظف:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
         return NAME
-
     elif "مصروفات" in choice:
         keyboard = [["📌 مصروفات إدارية"], ["📝 مصروفات أخرى"]]
         await update.message.reply_text("اختار نوع المصروفات:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
         return MASROF_TYPE
-
     await update.message.reply_text("❌ اختيار غلط")
     return ConversationHandler.END
 
 async def get_masrof_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     choice = update.message.text
-
     if "إدارية" in choice:
         bands = get_all_bands(sheet)
         if not bands:
@@ -97,12 +92,10 @@ async def get_masrof_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[band] for band in bands]
         await update.message.reply_text("📌 اختار البند:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
         return NAME
-
     elif "أخرى" in choice:
         context.user_data['action'] = 'masrof_okhra'
         await update.message.reply_text("💰 كام المبلغ؟", reply_markup=ReplyKeyboardRemove())
         return OKHRA_AMOUNT
-
     await update.message.reply_text("❌ اختيار غلط")
     return ConversationHandler.END
 
@@ -148,12 +141,10 @@ async def ameel_dafa3(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['name'] = update.message.text
     action = context.user_data['action']
-
     if action == 'mwzf_sarf':
         keyboard = [["💰 مرتب"], ["💳 سلفة"], ["🎁 مكافأة"], ["✂️ خصم"]]
         await update.message.reply_text("اختار نوع الصرف للموظف:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
         return MWZF_ACTION
-
     await update.message.reply_text("💰 كام المبلغ؟", reply_markup=ReplyKeyboardRemove())
     return NAME_AMOUNT
 
@@ -162,7 +153,6 @@ async def get_name_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
         amount = float(update.message.text)
         action = context.user_data['action']
         name = context.user_data['name']
-
         if action == 'ameel_deen':
             add_client(sheet, name, amount, "دين")
             await update.message.reply_text(f"✅ تم تسجيل دين على {name}: {amount} جنيه")
@@ -178,7 +168,6 @@ async def get_name_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif action == 'masrof_edari':
             add_masrof_edari(sheet, name, amount)
             await update.message.reply_text(f"✅ تم تسجيل مصروفات إدارية - {name}: {amount} جنيه")
-
         return ConversationHandler.END
     except:
         await update.message.reply_text("❌ لازم تكتب رقم بس، حاول تاني:")
@@ -266,11 +255,6 @@ async def add_mwzf(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['action'] = 'add_mwzf'
     return NAME_AMOUNT_TYPE
 
-async def get_mwzf_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['name'] = update.message.text
-    await update.message.reply_text("💰 المرتب الأسبوعي؟")
-    return MWZF_SALARY
-
 async def get_mwzf_salary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         salary = float(update.message.text)
@@ -296,11 +280,10 @@ async def get_mwzf_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['mwzf_type'] = mwzf_type
     name = context.user_data['name']
 
-    # لو مرتب نحسب الباقي ونطلب تأكيد
     if mwzf_type == "مرتب":
         data = get_employee_balance(sheet, name)
         if data:
-            net = data['salary'] + data['bonuses'] - data['advances'] - data['deductions'] - data['total_paid']
+            net = data['net']
             if net <= 0:
                 await update.message.reply_text(
                     f"⚠️ {name} مفيش مرتب متبقي!\n"
@@ -335,16 +318,11 @@ async def get_mwzf_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     choice = update.message.text
     name = context.user_data['name']
     net = context.user_data['mwzf_net']
-
     if "تأكيد" in choice:
         add_employee_transaction(sheet, name, "مرتب", net)
-        await update.message.reply_text(
-            f"✅ تم صرف مرتب {name}: {net} جنيه",
-            reply_markup=ReplyKeyboardRemove()
-        )
+        await update.message.reply_text(f"✅ تم صرف مرتب {name}: {net} جنيه", reply_markup=ReplyKeyboardRemove())
     else:
         await update.message.reply_text("❌ تم الإلغاء", reply_markup=ReplyKeyboardRemove())
-
     return ConversationHandler.END
 
 async def get_mwzf_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -436,59 +414,49 @@ async def get_hesab_or_add_del(update: Update, context: ContextTypes.DEFAULT_TYP
         result = add_person(sheet, name, "عميل")
         msg = f"✅ تم إضافة عميل: {name}" if result else f"⚠️ العميل {name} موجود"
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardRemove())
-
     elif action == 'add_mwrd':
         result = add_person(sheet, name, "مورد")
         msg = f"✅ تم إضافة مورد: {name}" if result else f"⚠️ المورد {name} موجود"
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardRemove())
-
     elif action == 'del_ameel':
         result = delete_person(sheet, name, "عميل")
         msg = f"✅ تم حذف العميل: {name}" if result else f"⚠️ العميل {name} مش موجود"
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardRemove())
-
     elif action == 'del_mwrd':
         result = delete_person(sheet, name, "مورد")
         msg = f"✅ تم حذف المورد: {name}" if result else f"⚠️ المورد {name} مش موجود"
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardRemove())
-
     elif action == 'add_mwzf':
         context.user_data['name'] = name
         await update.message.reply_text("💰 المرتب الأسبوعي؟")
         return MWZF_SALARY
-
     elif action == 'hesab_mwzf':
         data = get_employee_balance(sheet, name)
         if not data:
             await update.message.reply_text("❌ مش لاقي بيانات", reply_markup=ReplyKeyboardRemove())
         else:
-            msg = f"👷 *{name}*\n\n"
-            msg += f"💰 المرتب الأسبوعي: {data['salary']} جنيه\n"
-            msg += f"🎁 مكافآت: {data['bonuses']} جنيه\n"
-            msg += f"💳 سلف: {data['advances']} جنيه\n"
-            msg += f"✂️ خصومات: {data['deductions']} جنيه\n"
-            msg += f"✅ تم صرف: {data['total_paid']} جنيه\n"
-            msg += f"\n💵 *الصافي المتبقي: {data['net']} جنيه*"
+            msg = (f"👷 *{name}*\n\n"
+                   f"💰 المرتب الأسبوعي: {data['salary']} جنيه\n"
+                   f"🎁 مكافآت: {data['bonuses']} جنيه\n"
+                   f"💳 سلف: {data['advances']} جنيه\n"
+                   f"✂️ خصومات: {data['deductions']} جنيه\n"
+                   f"✅ تم صرف: {data['total_paid']} جنيه\n\n"
+                   f"💵 *الصافي المتبقي: {data['net']} جنيه*")
             await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
-
     elif action == 'del_mwzf':
         result = delete_employee(sheet, name)
         msg = f"✅ تم حذف الموظف: {name}" if result else f"⚠️ الموظف {name} مش موجود"
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardRemove())
-
     elif action == 'add_band':
         result = add_band(sheet, name)
         msg = f"✅ تم إضافة البند: {name}" if result else f"⚠️ البند {name} موجود"
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardRemove())
-
     elif action == 'del_band':
         result = delete_band(sheet, name)
         msg = f"✅ تم حذف البند: {name}" if result else f"⚠️ البند {name} مش موجود"
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardRemove())
-
     elif action == 'del_record_confirm':
         return await confirm_delete_record(update, context)
-
     else:
         return await get_hesab(update, context)
 
@@ -512,20 +480,17 @@ async def select_sheet_to_delete(update: Update, context: ContextTypes.DEFAULT_T
     else:
         await update.message.reply_text("❌ اختيار غلط", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
-
     context.user_data['del_worksheet'] = worksheet
     records = get_last_records(sheet, worksheet)
     if not records:
         await update.message.reply_text("❌ مفيش حركات", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
-
     msg = "اختار رقم الحركة اللي عايز تمسحها:\n\n"
     for i, r in enumerate(records):
         if worksheet == "الخزنة":
             msg += f"{i+1}. {r['التاريخ']} | {r['النوع']} | {r['المبلغ']} | {r['الوصف']}\n"
         else:
             msg += f"{i+1}. {r['التاريخ']} | {r['الاسم']} | {r['النوع']} | {r['المبلغ']}\n"
-
     context.user_data['del_records'] = records
     context.user_data['action'] = 'del_record_confirm'
     keyboard = [[str(i+1) for i in range(len(records))]]
@@ -561,27 +526,28 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 app = ApplicationBuilder().token(TOKEN).build()
 
+entry_points_list = [
+    CommandHandler("dakhl", dakhl),
+    CommandHandler("sarf", sarf),
+    CommandHandler("ameel_deen", ameel_deen),
+    CommandHandler("ameel_dafa3", ameel_dafa3),
+    CommandHandler("mwrd_madyoniya", mwrd_madyoniya),
+    CommandHandler("hesab_ameel", hesab_ameel),
+    CommandHandler("hesab_mwrd", hesab_mwrd),
+    CommandHandler("add_ameel", add_ameel),
+    CommandHandler("add_mwrd", add_mwrd),
+    CommandHandler("del_ameel", del_ameel),
+    CommandHandler("del_mwrd", del_mwrd),
+    CommandHandler("del_record", del_record),
+    CommandHandler("add_mwzf", add_mwzf),
+    CommandHandler("del_mwzf", del_mwzf),
+    CommandHandler("hesab_mwzf", hesab_mwzf),
+    CommandHandler("add_band", add_band_cmd),
+    CommandHandler("del_band", del_band_cmd),
+]
+
 conv_handler = ConversationHandler(
-    fallbacks=[
-        CommandHandler("cancel", cancel),
-        CommandHandler("dakhl", dakhl),
-        CommandHandler("sarf", sarf),
-        CommandHandler("ameel_deen", ameel_deen),
-        CommandHandler("ameel_dafa3", ameel_dafa3),
-        CommandHandler("mwrd_madyoniya", mwrd_madyoniya),
-        CommandHandler("hesab_ameel", hesab_ameel),
-        CommandHandler("hesab_mwrd", hesab_mwrd),
-        CommandHandler("add_ameel", add_ameel),
-        CommandHandler("add_mwrd", add_mwrd),
-        CommandHandler("del_ameel", del_ameel),
-        CommandHandler("del_mwrd", del_mwrd),
-        CommandHandler("del_record", del_record),
-        CommandHandler("add_mwzf", add_mwzf),
-        CommandHandler("del_mwzf", del_mwzf),
-        CommandHandler("hesab_mwzf", hesab_mwzf),
-        CommandHandler("add_band", add_band_cmd),
-        CommandHandler("del_band", del_band_cmd),
-        ],
+    entry_points=entry_points_list,
     states={
         AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_amount)],
         DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_description)],
@@ -594,11 +560,11 @@ conv_handler = ConversationHandler(
         MWZF_SALARY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_mwzf_salary)],
         MWZF_ACTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_mwzf_action)],
         MWZF_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_mwzf_amount)],
+        MWZF_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_mwzf_confirm)],
         OKHRA_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_okhra_amount)],
         OKHRA_NOTE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_okhra_note)],
-        MWZF_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_mwzf_confirm)],
     },
-    fallbacks=[CommandHandler("cancel", cancel)]
+    fallbacks=entry_points_list + [CommandHandler("cancel", cancel)]
 )
 
 app.add_handler(conv_handler)
