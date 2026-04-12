@@ -191,17 +191,30 @@ def add_employee_transaction(sheet, name, type, amount, note=""):
     add_transaction(sheet, "صرف", amount, f"{type} موظف: {name}")
 
 def get_employee_balance(sheet, name):
+    from datetime import date, timedelta
     try:
+        # حساب بداية الأسبوع الحالي (السبت)
+        today = date.today()
+        days_since_saturday = (today.weekday() - 5) % 7
+        week_start = today - timedelta(days=days_since_saturday)
+        week_start_str = week_start.strftime("%Y-%m-%d")
+
         ws = sheet.worksheet("خزنة_الموظفين")
         records = ws.get_all_records()
         employees = get_all_employees(sheet)
         salary = next((e[1] for e in employees if e[0] == name), 0)
+
         total_paid = 0
         advances = 0
         bonuses = 0
         deductions = 0
+
         for row in records:
             if row['الاسم'] == name:
+                # بس حركات الأسبوع الحالي
+                row_date = row['التاريخ'][:10]
+                if row_date < week_start_str:
+                    continue
                 amount = float(row['المبلغ'])
                 if row['النوع'] == 'مرتب':
                     total_paid += amount
@@ -211,6 +224,7 @@ def get_employee_balance(sheet, name):
                     bonuses += amount
                 elif row['النوع'] == 'خصم':
                     deductions += amount
+
         net = salary + bonuses - advances - deductions - total_paid
         return {
             'salary': salary,
@@ -218,11 +232,12 @@ def get_employee_balance(sheet, name):
             'advances': advances,
             'deductions': deductions,
             'total_paid': total_paid,
-            'net': net
+            'net': net,
+            'week_start': week_start_str
         }
     except:
         return None
-
+    
 # ============ البنود الثابتة ============
 
 def get_all_bands(sheet):
