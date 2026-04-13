@@ -9,7 +9,10 @@ from sheets import (connect_sheets, add_transaction, add_client, add_supplier,
                    get_all_employees, get_employee_names, add_employee, delete_employee,
                    add_employee_transaction, get_employee_balance,
                    get_all_bands, add_band, delete_band,
-                   add_masrof_edari, add_masrof_okhra)
+                   add_masrof_edari, add_masrof_okhra,
+                   get_monthly_band_report, get_monthly_masrof_report,
+                   get_weekly_employees_report, get_monthly_khazna_report,
+                   get_person_transactions, generate_pdf_report)
 
 TOKEN = "8603771009:AAE46Fv4QEU_tsSGlvnN0kPbD1ojDnZnVCA"
 sheet = connect_sheets()
@@ -233,7 +236,7 @@ async def madenoniyat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not details:
         await update.message.reply_text("✅ مفيش مديونيات على الشركة دلوقتي")
         return
-    msg = f"💸 *إجمالي المديونيات اللي علينا:*\n\n"
+    msg = "💸 *إجمالي المديونيات اللي علينا:*\n\n"
     msg += "\n".join(details)
     msg += f"\n\n*الإجمالي: {total} جنيه*"
     await update.message.reply_text(msg, parse_mode='Markdown')
@@ -243,10 +246,86 @@ async def feloos_ameel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not details:
         await update.message.reply_text("📭 مفيش عملاء عندهم فلوس دلوقتي")
         return
-    msg = f"💰 *إجمالي الفلوس اللي للعملاء عندنا:*\n\n"
+    msg = "💰 *إجمالي الفلوس اللي للعملاء عندنا:*\n\n"
     msg += "\n".join(details)
     msg += f"\n\n*الإجمالي: {total} جنيه*"
     await update.message.reply_text(msg, parse_mode='Markdown')
+
+# ============ التقارير ============
+
+async def taqrir_band(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    bands = get_all_bands(sheet)
+    context.user_data['action'] = 'taqrir_band'
+    if not bands:
+        await update.message.reply_text("❌ مفيش بنود", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+    keyboard = [[band] for band in bands]
+    await update.message.reply_text("📌 اختار البند:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+    return NAME_AMOUNT_TYPE
+
+async def taqrir_masrof(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    bands, okhra = get_monthly_masrof_report(sheet)
+    month = date.today().strftime("%Y-%m")
+    if not bands and okhra == 0:
+        await update.message.reply_text("📭 مفيش مصروفات الشهر ده")
+        return
+    msg = f"📋 *تقرير المصروفات - {month}*\n\n"
+    total = 0
+    if bands:
+        msg += "📌 *إدارية:*\n"
+        for band, amount in bands.items():
+            msg += f"  • {band}: {amount} جنيه\n"
+            total += amount
+    if okhra > 0:
+        msg += f"\n📝 *أخرى:* {okhra} جنيه\n"
+        total += okhra
+    msg += f"\n💰 *الإجمالي: {total} جنيه*"
+    await update.message.reply_text(msg, parse_mode='Markdown')
+
+async def taqrir_mwzfeen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    report = get_weekly_employees_report(sheet)
+    if not report:
+        await update.message.reply_text("📭 مفيش موظفين")
+        return
+    msg = "👷 *تقرير الموظفين الأسبوعي*\n\n"
+    for emp in report:
+        d = emp['data']
+        msg += f"*{emp['name']}*\n"
+        msg += f"  💰 المرتب: {d['salary']} | 🎁 مكافآت: {d['bonuses']}\n"
+        msg += f"  💳 سلف: {d['advances']} | ✂️ خصم: {d['deductions']}\n"
+        msg += f"  💵 الصافي المتبقي: {d['net']} جنيه\n\n"
+    await update.message.reply_text(msg, parse_mode='Markdown')
+
+async def taqrir_khazna(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    total_in, total_out = get_monthly_khazna_report(sheet)
+    month = date.today().strftime("%Y-%m")
+    net = total_in - total_out
+    emoji = "📈" if net >= 0 else "📉"
+    msg = (f"🏦 *تقرير الخزنة - {month}*\n\n"
+           f"💚 إجمالي الدخل: {total_in} جنيه\n"
+           f"🔴 إجمالي الصرف: {total_out} جنيه\n"
+           f"{emoji} *الصافي: {net} جنيه*")
+    await update.message.reply_text(msg, parse_mode='Markdown')
+
+async def taqrir_ameel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    names = get_all_clients(sheet)
+    context.user_data['action'] = 'taqrir_ameel'
+    if not names:
+        await update.message.reply_text("❌ مفيش عملاء", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+    keyboard = [[name] for name in names]
+    await update.message.reply_text("👤 اختار العميل:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+    return NAME_AMOUNT_TYPE
+
+async def taqrir_mwrd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    names = get_all_suppliers(sheet)
+    context.user_data['action'] = 'taqrir_mwrd'
+    if not names:
+        await update.message.reply_text("❌ مفيش موردين", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+    keyboard = [[name] for name in names]
+    await update.message.reply_text("🏭 اختار المورد:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+    return NAME_AMOUNT_TYPE
 
 # ============ الموظفين ============
 
@@ -276,10 +355,8 @@ async def get_mwzf_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not mwzf_type:
         await update.message.reply_text("❌ اختيار غلط")
         return ConversationHandler.END
-
     context.user_data['mwzf_type'] = mwzf_type
     name = context.user_data['name']
-
     if mwzf_type == "مرتب":
         data = get_employee_balance(sheet, name)
         if data:
@@ -290,12 +367,10 @@ async def get_mwzf_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"المرتب الأسبوعي: {data['salary']} جنيه\n"
                     f"سلف: {data['advances']} جنيه\n"
                     f"خصومات: {data['deductions']} جنيه\n"
-                    f"مكافآت: {data['bonuses']} جنيه\n"
                     f"الباقي: {net} جنيه",
                     reply_markup=ReplyKeyboardRemove()
                 )
                 return ConversationHandler.END
-
             context.user_data['mwzf_net'] = net
             keyboard = [["✅ تأكيد"], ["❌ إلغاء"]]
             await update.message.reply_text(
@@ -310,7 +385,6 @@ async def get_mwzf_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
             )
             return MWZF_CONFIRM
-
     await update.message.reply_text("💰 كام المبلغ؟", reply_markup=ReplyKeyboardRemove())
     return MWZF_AMOUNT
 
@@ -406,6 +480,8 @@ async def del_mwrd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🏭 اختار المورد اللي عايز تحذفه:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
     return NAME_AMOUNT_TYPE
 
+# ============ الفانكشن الرئيسية ============
+
 async def get_hesab_or_add_del(update: Update, context: ContextTypes.DEFAULT_TYPE):
     action = context.user_data.get('action')
     name = update.message.text
@@ -414,22 +490,27 @@ async def get_hesab_or_add_del(update: Update, context: ContextTypes.DEFAULT_TYP
         result = add_person(sheet, name, "عميل")
         msg = f"✅ تم إضافة عميل: {name}" if result else f"⚠️ العميل {name} موجود"
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardRemove())
+
     elif action == 'add_mwrd':
         result = add_person(sheet, name, "مورد")
         msg = f"✅ تم إضافة مورد: {name}" if result else f"⚠️ المورد {name} موجود"
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardRemove())
+
     elif action == 'del_ameel':
         result = delete_person(sheet, name, "عميل")
         msg = f"✅ تم حذف العميل: {name}" if result else f"⚠️ العميل {name} مش موجود"
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardRemove())
+
     elif action == 'del_mwrd':
         result = delete_person(sheet, name, "مورد")
         msg = f"✅ تم حذف المورد: {name}" if result else f"⚠️ المورد {name} مش موجود"
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardRemove())
+
     elif action == 'add_mwzf':
         context.user_data['name'] = name
         await update.message.reply_text("💰 المرتب الأسبوعي؟")
         return MWZF_SALARY
+
     elif action == 'hesab_mwzf':
         data = get_employee_balance(sheet, name)
         if not data:
@@ -443,20 +524,59 @@ async def get_hesab_or_add_del(update: Update, context: ContextTypes.DEFAULT_TYP
                    f"✅ تم صرف: {data['total_paid']} جنيه\n\n"
                    f"💵 *الصافي المتبقي: {data['net']} جنيه*")
             await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
+
     elif action == 'del_mwzf':
         result = delete_employee(sheet, name)
         msg = f"✅ تم حذف الموظف: {name}" if result else f"⚠️ الموظف {name} مش موجود"
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardRemove())
+
     elif action == 'add_band':
         result = add_band(sheet, name)
         msg = f"✅ تم إضافة البند: {name}" if result else f"⚠️ البند {name} موجود"
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardRemove())
+
     elif action == 'del_band':
         result = delete_band(sheet, name)
         msg = f"✅ تم حذف البند: {name}" if result else f"⚠️ البند {name} مش موجود"
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardRemove())
+
+    elif action == 'taqrir_band':
+        from datetime import date
+        total, details = get_monthly_band_report(sheet, name)
+        month = date.today().strftime("%Y-%m")
+        if not details:
+            await update.message.reply_text(f"📭 مفيش مصروفات لبند {name} الشهر ده", reply_markup=ReplyKeyboardRemove())
+        else:
+            msg = f"📌 *تقرير {name} - {month}*\n\n"
+            for d in details:
+                msg += f"  • {d['date']} : {d['amount']} جنيه\n"
+            msg += f"\n💰 *الإجمالي: {total} جنيه*"
+            await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
+
+    elif action in ['taqrir_ameel', 'taqrir_mwrd']:
+        person_type = "عميل" if action == 'taqrir_ameel' else "مورد"
+        transactions = get_person_transactions(sheet, name, person_type)
+        if not transactions:
+            await update.message.reply_text(f"📭 مفيش حركات لـ {name}", reply_markup=ReplyKeyboardRemove())
+        else:
+            balance = get_person_balance(
+                sheet,
+                "الخزنة_العملاء" if person_type == "عميل" else "الخزنة_الموردين",
+                name
+            )
+            await update.message.reply_text("⏳ جاري إنشاء التقرير...", reply_markup=ReplyKeyboardRemove())
+            try:
+                pdf_path = generate_pdf_report(name, person_type, transactions, balance)
+                with open(pdf_path, 'rb') as f:
+                    await update.message.reply_document(f, filename=f"تقرير_{name}.pdf")
+                import os
+                os.unlink(pdf_path)
+            except Exception as e:
+                await update.message.reply_text(f"❌ حصل خطأ في إنشاء PDF: {str(e)}")
+
     elif action == 'del_record_confirm':
         return await confirm_delete_record(update, context)
+
     else:
         return await get_hesab(update, context)
 
@@ -544,6 +664,9 @@ entry_points_list = [
     CommandHandler("hesab_mwzf", hesab_mwzf),
     CommandHandler("add_band", add_band_cmd),
     CommandHandler("del_band", del_band_cmd),
+    CommandHandler("taqrir_band", taqrir_band),
+    CommandHandler("taqrir_ameel", taqrir_ameel),
+    CommandHandler("taqrir_mwrd", taqrir_mwrd),
 ]
 
 conv_handler = ConversationHandler(
@@ -572,6 +695,9 @@ app.add_handler(CommandHandler("raseed", raseed))
 app.add_handler(CommandHandler("malakhas", malakhas))
 app.add_handler(CommandHandler("madenoniyat", madenoniyat))
 app.add_handler(CommandHandler("feloos_ameel", feloos_ameel))
+app.add_handler(CommandHandler("taqrir_masrof", taqrir_masrof))
+app.add_handler(CommandHandler("taqrir_mwzfeen", taqrir_mwzfeen))
+app.add_handler(CommandHandler("taqrir_khazna", taqrir_khazna))
 
 print("✅ البوت شغال!")
 app.run_polling()
