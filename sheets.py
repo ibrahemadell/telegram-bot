@@ -418,24 +418,10 @@ def generate_pdf_report(name, person_type, transactions, balance):
     import arabic_reshaper
     from bidi.algorithm import get_display
     from reportlab.lib.pagesizes import A4
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Spacer
     from reportlab.lib import colors
-    from reportlab.lib.enums import TA_CENTER
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.ttfonts import TTFont
     import tempfile
     import os
-    import urllib.request
-
-    # تحميل فونت عربي لو مش موجود
-    font_path = "/tmp/Amiri.ttf"
-    if not os.path.exists(font_path):
-        urllib.request.urlretrieve(
-            "https://github.com/google/fonts/raw/main/ofl/amiri/Amiri-Regular.ttf",
-            font_path
-        )
-    pdfmetrics.registerFont(TTFont('Amiri', font_path))
 
     def ar(text):
         reshaped = arabic_reshaper.reshape(str(text))
@@ -447,24 +433,37 @@ def generate_pdf_report(name, person_type, transactions, balance):
                             topMargin=30, bottomMargin=30)
     elements = []
 
-    title_style = ParagraphStyle('title', fontName='Cairo', fontSize=14, alignment=TA_CENTER)
-    normal_style = ParagraphStyle('normal', fontName='Cairo', fontSize=10, alignment=TA_CENTER)
-
-    elements.append(Paragraph(ar(f"تقرير حركات {person_type}: {name}"), title_style))
-    elements.append(Spacer(1, 12))
-    elements.append(Paragraph(ar(f"تاريخ التقرير: {date.today().strftime('%Y-%m-%d')}"), normal_style))
-    elements.append(Spacer(1, 12))
-
-    data = [[ar("التاريخ"), ar("النوع"), ar("المبلغ")]]
+    # بيانات الجدول
+    data = [
+        [ar("المبلغ"), ar("النوع"), ar("التاريخ")],
+    ]
     for t in transactions:
-        data.append([ar(t['التاريخ']), ar(t['النوع']), ar(str(t['المبلغ']))])
+        data.append([
+            ar(str(t['المبلغ'])),
+            ar(t['النوع']),
+            ar(t['التاريخ'])
+        ])
 
     status = ar("عليه") if balance > 0 else ar("ليه عندنا") if balance < 0 else ar("صفر")
-    data.append([ar("الرصيد النهائي"), status, ar(str(abs(balance)))])
+    data.append([ar(str(abs(balance))), status, ar("الرصيد النهائي")])
 
-    table = Table(data, colWidths=[180, 120, 100])
+    # معلومات العنوان كصف في الجدول
+    info_data = [
+        [ar(f"تاريخ التقرير: {date.today().strftime('%Y-%m-%d')}"),
+         ar(f"تقرير {person_type}: {name}")]
+    ]
+
+    info_table = Table(info_data, colWidths=[200, 200])
+    info_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTSIZE', (0, 0), (-1, -1), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+    ]))
+    elements.append(info_table)
+    elements.append(Spacer(1, 12))
+
+    table = Table(data, colWidths=[100, 120, 180])
     table.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (-1, -1), 'Cairo'),
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2C3E50')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
@@ -472,6 +471,7 @@ def generate_pdf_report(name, person_type, transactions, balance):
         ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.HexColor('#F2F3F4')]),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
         ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#AED6F1')),
+        ('FONTSIZE', (0, -1), (-1, -1), 11),
     ]))
     elements.append(table)
     doc.build(elements)
