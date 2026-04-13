@@ -351,13 +351,14 @@ def get_monthly_masrof_report(sheet):
         bands = {}
         okhra_total = 0
         for row in records:
-            if row['التاريخ'][:7] != current_month:
+            if str(row['التاريخ'])[:7] != current_month:
                 continue
             amount = float(row['المبلغ'])
-            if row['النوع'] == 'إدارية':
-                band = row['البند']
+            noa = str(row['النوع']).strip()
+            band = str(row['البند']).strip()
+            if noa == 'إدارية':
                 bands[band] = bands.get(band, 0) + amount
-            elif row['النوع'] == 'أخرى':
+            else:
                 okhra_total += amount
         return bands, okhra_total
     except:
@@ -421,7 +422,60 @@ def generate_pdf_report(name, person_type, transactions, balance):
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_CENTER
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
     import tempfile
+    import os
+    import urllib.request
+
+    # تحميل فونت عربي لو مش موجود
+    font_path = "/tmp/Cairo.ttf"
+    if not os.path.exists(font_path):
+        urllib.request.urlretrieve(
+            "https://github.com/google/fonts/raw/main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf",
+            font_path
+        )
+    pdfmetrics.registerFont(TTFont('Cairo', font_path))
+
+    def ar(text):
+        reshaped = arabic_reshaper.reshape(str(text))
+        return get_display(reshaped)
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+    doc = SimpleDocTemplate(tmp.name, pagesize=A4,
+                            rightMargin=30, leftMargin=30,
+                            topMargin=30, bottomMargin=30)
+    elements = []
+
+    title_style = ParagraphStyle('title', fontName='Cairo', fontSize=14, alignment=TA_CENTER)
+    normal_style = ParagraphStyle('normal', fontName='Cairo', fontSize=10, alignment=TA_CENTER)
+
+    elements.append(Paragraph(ar(f"تقرير حركات {person_type}: {name}"), title_style))
+    elements.append(Spacer(1, 12))
+    elements.append(Paragraph(ar(f"تاريخ التقرير: {date.today().strftime('%Y-%m-%d')}"), normal_style))
+    elements.append(Spacer(1, 12))
+
+    data = [[ar("التاريخ"), ar("النوع"), ar("المبلغ")]]
+    for t in transactions:
+        data.append([ar(t['التاريخ']), ar(t['النوع']), ar(str(t['المبلغ']))])
+
+    status = ar("عليه") if balance > 0 else ar("ليه عندنا") if balance < 0 else ar("صفر")
+    data.append([ar("الرصيد النهائي"), status, ar(str(abs(balance)))])
+
+    table = Table(data, colWidths=[180, 120, 100])
+    table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, -1), 'Cairo'),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2C3E50')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.HexColor('#F2F3F4')]),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#AED6F1')),
+    ]))
+    elements.append(table)
+    doc.build(elements)
+    return tmp.name
 
     def ar(text):
         reshaped = arabic_reshaper.reshape(str(text))
