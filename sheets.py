@@ -215,7 +215,10 @@ def add_employee_transaction(sheet, name, type, amount, note=""):
         ws.append_row(["التاريخ", "الاسم", "النوع", "المبلغ", "النوت"])
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     ws.append_row([now, name, type, amount, note])
-    add_transaction(sheet, "صرف", amount, f"{type} موظف: {name}")
+    
+    # بس المرتب والمكافأة بيخصموا من الخزنة فعلاً
+    if type in ["مرتب", "مكافأة", "سلفة"]:
+        add_transaction(sheet, "صرف", amount, f"{type} موظف: {name}")
 
 def get_employee_balance(sheet, name):
     try:
