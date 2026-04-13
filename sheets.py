@@ -429,13 +429,13 @@ def generate_pdf_report(name, person_type, transactions, balance):
     import urllib.request
 
     # تحميل فونت عربي لو مش موجود
-    font_path = "/tmp/Cairo.ttf"
+    font_path = "/tmp/Amiri.ttf"
     if not os.path.exists(font_path):
         urllib.request.urlretrieve(
-            "https://github.com/google/fonts/raw/main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf",
+            "https://github.com/google/fonts/raw/main/ofl/amiri/Amiri-Regular.ttf",
             font_path
         )
-    pdfmetrics.registerFont(TTFont('Cairo', font_path))
+    pdfmetrics.registerFont(TTFont('Amiri', font_path))
 
     def ar(text):
         reshaped = arabic_reshaper.reshape(str(text))
