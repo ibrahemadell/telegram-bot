@@ -1,7 +1,7 @@
-from datetime import date
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (ApplicationBuilder, CommandHandler, MessageHandler,
                           ConversationHandler, ContextTypes, filters)
+from datetime import date
 from sheets import (connect_sheets, add_transaction, add_client, add_supplier,
                    get_balance, get_person_balance, get_full_summary,
                    add_person, delete_person, get_last_records, delete_last_record,
@@ -542,7 +542,6 @@ async def get_hesab_or_add_del(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardRemove())
 
     elif action == 'taqrir_band':
-        from datetime import date
         total, details = get_monthly_band_report(sheet, name)
         month = date.today().strftime("%Y-%m")
         if not details:
@@ -573,7 +572,7 @@ async def get_hesab_or_add_del(update: Update, context: ContextTypes.DEFAULT_TYP
                 import os
                 os.unlink(pdf_path)
             except Exception as e:
-                await update.message.reply_text(f"❌ حصل خطأ في إنشاء PDF: {str(e)}")
+                await update.message.reply_text(f"❌ حصل خطأ: {str(e)}", reply_markup=ReplyKeyboardRemove())
 
     elif action == 'del_record_confirm':
         return await confirm_delete_record(update, context)

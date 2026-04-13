@@ -46,7 +46,7 @@ def get_monthly_khazna_report(sheet):
         total_in = 0
         total_out = 0
         for row in records:
-            if row['التاريخ'][:7] != current_month:
+            if str(row['التاريخ'])[:7] != current_month:
                 continue
             amount = float(row['المبلغ'])
             if row['النوع'] == 'دخل':
@@ -223,20 +223,17 @@ def get_employee_balance(sheet, name):
         days_since_saturday = (today.weekday() - 5) % 7
         week_start = today - timedelta(days=days_since_saturday)
         week_start_str = week_start.strftime("%Y-%m-%d")
-
         ws = sheet.worksheet("خزنة_الموظفين")
         records = ws.get_all_records()
         employees = get_all_employees(sheet)
         salary = next((e[1] for e in employees if e[0] == name), 0)
-
         total_paid = 0
         advances = 0
         bonuses = 0
         deductions = 0
-
         for row in records:
             if row['الاسم'] == name:
-                row_date = row['التاريخ'][:10]
+                row_date = str(row['التاريخ'])[:10]
                 if row_date < week_start_str:
                     continue
                 amount = float(row['المبلغ'])
@@ -248,7 +245,6 @@ def get_employee_balance(sheet, name):
                     bonuses += amount
                 elif row['النوع'] == 'خصم':
                     deductions += amount
-
         net = salary + bonuses - advances - deductions - total_paid
         return {
             'salary': salary,
@@ -335,7 +331,7 @@ def get_monthly_band_report(sheet, band_name):
         total = 0
         details = []
         for row in records:
-            if row['البند'] == band_name and row['التاريخ'][:7] == current_month:
+            if str(row['البند']).strip() == band_name and str(row['التاريخ'])[:7] == current_month:
                 amount = float(row['المبلغ'])
                 total += amount
                 details.append({'date': row['التاريخ'], 'amount': amount})
@@ -420,8 +416,13 @@ def generate_pdf_report(name, person_type, transactions, balance):
     from reportlab.lib.pagesizes import A4
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Spacer
     from reportlab.lib import colors
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
     import tempfile
-    import os
+
+    # تسجيل فونت Amiri
+    font_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Amiri-Regular.ttf')
+    pdfmetrics.registerFont(TTFont('Amiri', font_path))
 
     def ar(text):
         reshaped = arabic_reshaper.reshape(str(text))
@@ -433,85 +434,42 @@ def generate_pdf_report(name, person_type, transactions, balance):
                             topMargin=30, bottomMargin=30)
     elements = []
 
-    # بيانات الجدول
-    data = [
-        [ar("المبلغ"), ar("النوع"), ar("التاريخ")],
-    ]
+    # عنوان
+    title_data = [[ar(f"تاريخ التقرير: {date.today().strftime('%Y-%m-%d')}"),
+                   ar(f"تقرير {person_type}: {name}")]]
+    title_table = Table(title_data, colWidths=[200, 200])
+    title_table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, -1), 'Amiri'),
+        ('FONTSIZE', (0, 0), (-1, -1), 13),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+    ]))
+    elements.append(title_table)
+    elements.append(Spacer(1, 12))
+
+    # الجدول
+    data = [[ar("المبلغ"), ar("النوع"), ar("التاريخ")]]
     for t in transactions:
         data.append([
             ar(str(t['المبلغ'])),
             ar(t['النوع']),
-            ar(t['التاريخ'])
+            ar(str(t['التاريخ']))
         ])
 
     status = ar("عليه") if balance > 0 else ar("ليه عندنا") if balance < 0 else ar("صفر")
     data.append([ar(str(abs(balance))), status, ar("الرصيد النهائي")])
 
-    # معلومات العنوان كصف في الجدول
-    info_data = [
-        [ar(f"تاريخ التقرير: {date.today().strftime('%Y-%m-%d')}"),
-         ar(f"تقرير {person_type}: {name}")]
-    ]
-
-    info_table = Table(info_data, colWidths=[200, 200])
-    info_table.setStyle(TableStyle([
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTSIZE', (0, 0), (-1, -1), 12),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-    ]))
-    elements.append(info_table)
-    elements.append(Spacer(1, 12))
-
-    table = Table(data, colWidths=[100, 120, 180])
+    table = Table(data, colWidths=[100, 130, 170])
     table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, -1), 'Amiri'),
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2C3E50')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('FONTSIZE', (0, 0), (-1, -1), 11),
         ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.HexColor('#F2F3F4')]),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
         ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#AED6F1')),
-        ('FONTSIZE', (0, -1), (-1, -1), 11),
-    ]))
-    elements.append(table)
-    doc.build(elements)
-    return tmp.name
-
-    def ar(text):
-        reshaped = arabic_reshaper.reshape(str(text))
-        return get_display(reshaped)
-
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
-    doc = SimpleDocTemplate(tmp.name, pagesize=A4,
-                            rightMargin=30, leftMargin=30,
-                            topMargin=30, bottomMargin=30)
-    elements = []
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle('title', parent=styles['Normal'], alignment=TA_CENTER, fontSize=14)
-    normal_style = ParagraphStyle('normal', parent=styles['Normal'], alignment=TA_CENTER, fontSize=10)
-
-    elements.append(Paragraph(ar(f"تقرير حركات {person_type}: {name}"), title_style))
-    elements.append(Spacer(1, 12))
-    elements.append(Paragraph(ar(f"تاريخ التقرير: {date.today().strftime('%Y-%m-%d')}"), normal_style))
-    elements.append(Spacer(1, 12))
-
-    data = [[ar("التاريخ"), ar("النوع"), ar("المبلغ")]]
-    for t in transactions:
-        data.append([ar(t['التاريخ']), ar(t['النوع']), ar(str(t['المبلغ']))])
-
-    status = ar("عليه") if balance > 0 else ar("ليه عندنا") if balance < 0 else ar("صفر")
-    data.append([ar("الرصيد النهائي"), status, ar(str(abs(balance)))])
-
-    table = Table(data, colWidths=[180, 120, 100])
-    table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2C3E50')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTSIZE', (0, 0), (-1, -1), 10),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.HexColor('#F2F3F4')]),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#AED6F1')),
-        ('FONTSIZE', (0, -1), (-1, -1), 11),
+        ('FONTSIZE', (0, -1), (-1, -1), 12),
     ]))
     elements.append(table)
     doc.build(elements)
