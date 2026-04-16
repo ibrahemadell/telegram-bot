@@ -57,6 +57,26 @@ def get_monthly_khazna_report(sheet):
     except:
         return 0, 0
 
+def get_daily_khazna_report(sheet, selected_date):
+    """تقرير يومي لحركات الخزنة"""
+    try:
+        ws = sheet.worksheet("الخزنة")
+        records = ws.get_all_records()
+        day_records = []
+        total_in = 0
+        total_out = 0
+        for row in records:
+            if str(row['التاريخ'])[:10] == selected_date:
+                day_records.append(row)
+                amount = float(row['المبلغ'])
+                if row['النوع'] == 'دخل':
+                    total_in += amount
+                elif row['النوع'] == 'صرف':
+                    total_out += amount
+        return day_records, total_in, total_out
+    except:
+        return [], 0, 0
+
 # ============ العملاء ============
 
 def add_client(sheet, name, amount, type):
@@ -215,8 +235,6 @@ def add_employee_transaction(sheet, name, type, amount, note=""):
         ws.append_row(["التاريخ", "الاسم", "النوع", "المبلغ", "النوت"])
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     ws.append_row([now, name, type, amount, note])
-    
-    # بس المرتب والمكافأة بيخصموا من الخزنة فعلاً
     if type in ["مرتب", "مكافأة", "سلفة"]:
         add_transaction(sheet, "صرف", amount, f"{type} موظف: {name}")
 
@@ -423,7 +441,6 @@ def generate_pdf_report(name, person_type, transactions, balance):
     from reportlab.pdfbase.ttfonts import TTFont
     import tempfile
 
-    # تسجيل فونت Amiri
     font_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Amiri-Regular.ttf')
     pdfmetrics.registerFont(TTFont('Amiri', font_path))
 
@@ -437,7 +454,6 @@ def generate_pdf_report(name, person_type, transactions, balance):
                             topMargin=30, bottomMargin=30)
     elements = []
 
-    # عنوان
     title_data = [[ar(f"تاريخ التقرير: {date.today().strftime('%Y-%m-%d')}"),
                    ar(f"تقرير {person_type}: {name}")]]
     title_table = Table(title_data, colWidths=[200, 200])
@@ -450,14 +466,9 @@ def generate_pdf_report(name, person_type, transactions, balance):
     elements.append(title_table)
     elements.append(Spacer(1, 12))
 
-    # الجدول
     data = [[ar("المبلغ"), ar("النوع"), ar("التاريخ")]]
     for t in transactions:
-        data.append([
-            ar(str(t['المبلغ'])),
-            ar(t['النوع']),
-            ar(str(t['التاريخ']))
-        ])
+        data.append([ar(str(t['المبلغ'])), ar(t['النوع']), ar(str(t['التاريخ']))])
 
     status = ar("عليه") if balance > 0 else ar("ليه عندنا") if balance < 0 else ar("صفر")
     data.append([ar(str(abs(balance))), status, ar("الرصيد النهائي")])
