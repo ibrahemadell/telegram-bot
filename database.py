@@ -1,11 +1,16 @@
 import sqlite3
 import os
 from datetime import date, datetime, timedelta
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-import tempfile
+
+try:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    import tempfile
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
 
 # ============ إعداد قاعدة البيانات ============
 
@@ -534,6 +539,11 @@ def delete_last_record(table_name, record_id):
 # ============ PDF ============
 
 def generate_pdf_report(name, person_type, transactions, balance):
+    if not REPORTLAB_AVAILABLE:
+        raise ImportError("ReportLab is not installed. Cannot generate PDF reports.")
+
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Spacer
+    from reportlab.lib import colors
     import arabic_reshaper
     from bidi.algorithm import get_display
 
