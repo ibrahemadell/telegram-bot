@@ -806,4 +806,8 @@ conv_handler = ConversationHandler(
 app.add_handler(conv_handler)
 
 print("✅ البوت شغال!")
-app.run_polling()
+try:
+    app.run_polling()
+except Exception as e:
+    print(f"❌ خطأ في البوت: {e}")
+    # Optional: add retry logic or notification
