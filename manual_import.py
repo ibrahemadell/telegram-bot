@@ -1,6 +1,7 @@
 import sqlite3
 import os
 import csv
+from datetime import datetime
 from database import get_db, init_db
 
 # Initialize database
@@ -17,6 +18,21 @@ CSV_FILES = {
     'masrof_edari': 'masrof_edari.csv',  # Columns: date,band,amount
     'masrof_okhra': 'masrof_okhra.csv',  # Columns: date,amount,note
 }
+
+def parse_date(date_str):
+    """Parse date from various formats to YYYY-MM-DD"""
+    try:
+        # Try MM/DD/YYYY HH:MM format
+        dt = datetime.strptime(date_str, '%m/%d/%Y %H:%M')
+        return dt.strftime('%Y-%m-%d')
+    except ValueError:
+        try:
+            # Try MM/DD/YYYY format
+            dt = datetime.strptime(date_str, '%m/%d/%Y')
+            return dt.strftime('%Y-%m-%d')
+        except ValueError:
+            # If already YYYY-MM-DD, return as is
+            return date_str
 
 def import_from_csv():
     conn = get_db()
@@ -40,18 +56,28 @@ def import_from_csv():
                 if table == 'persons':
                     conn.execute("INSERT OR IGNORE INTO persons (name, type) VALUES (?, ?)", row)
                 elif table == 'khazna':
+                    # Convert date
+                    row[0] = parse_date(row[0])
                     conn.execute("INSERT INTO khazna (date, type, amount, description) VALUES (?, ?, ?, ?)", row)
                 elif table == 'person_transactions':
+                    # Convert date
+                    row[2] = parse_date(row[2])
                     conn.execute("INSERT INTO person_transactions (person_name, person_type, date, trans_type, amount) VALUES (?, ?, ?, ?, ?)", row)
                 elif table == 'employees':
                     conn.execute("INSERT OR IGNORE INTO employees (name, salary) VALUES (?, ?)", row)
                 elif table == 'employee_transactions':
+                    # Convert date
+                    row[1] = parse_date(row[1])
                     conn.execute("INSERT INTO employee_transactions (employee_name, date, trans_type, amount) VALUES (?, ?, ?, ?)", row)
                 elif table == 'bands':
                     conn.execute("INSERT OR IGNORE INTO bands (name) VALUES (?)", row)
                 elif table == 'masrof_edari':
+                    # Convert date
+                    row[0] = parse_date(row[0])
                     conn.execute("INSERT INTO masrof_edari (date, band, amount) VALUES (?, ?, ?)", row)
                 elif table == 'masrof_okhra':
+                    # Convert date
+                    row[0] = parse_date(row[0])
                     conn.execute("INSERT INTO masrof_okhra (date, amount, note) VALUES (?, ?, ?)", row)
                 imported_count += 1
 
