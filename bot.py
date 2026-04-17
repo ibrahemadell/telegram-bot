@@ -16,7 +16,11 @@ from database  import (init_db, add_transaction, add_client, add_supplier,
                    get_person_transactions, generate_pdf_report,
                    get_daily_khazna_report)
 
-TOKEN = "8603771009:AAE46Fv4QEU_tsSGlvnN0kPbD1ojDnZnVCA"
+import os
+
+TOKEN = os.environ.get("TOKEN")
+if not TOKEN:
+    raise ValueError("TOKEN environment variable is required")
 init_db()
 
 (MAIN_ACTION, AMOUNT, DESCRIPTION, NAME, NAME_AMOUNT, NAME_AMOUNT_TYPE,
