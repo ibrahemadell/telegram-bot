@@ -9,10 +9,18 @@ import tempfile
 
 # ============ إعداد قاعدة البيانات ============
 
-DB_PATH = os.environ.get("DB_PATH", "/app/data/bot.db")
+DB_PATH = os.environ.get("DB_PATH") or "/app/data/bot.db"
+if not os.path.isabs(DB_PATH):
+    DB_PATH = os.path.abspath(DB_PATH)
+
+DB_DIR = os.path.dirname(DB_PATH)
+
+if DB_DIR and not os.path.exists(DB_DIR):
+    os.makedirs(DB_DIR, exist_ok=True)
 
 def get_db():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    if DB_DIR and not os.path.exists(DB_DIR):
+        os.makedirs(DB_DIR, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -21,8 +29,11 @@ def get_db():
 def init_db():
     print(f"🔍 DB_PATH: {DB_PATH}")
     try:
-        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-        print(f"📁 Directory created: {os.path.dirname(DB_PATH)}")
+        if DB_DIR:
+            os.makedirs(DB_DIR, exist_ok=True)
+            print(f"📁 Directory created or exists: {DB_DIR}")
+        else:
+            print("📁 Using current working directory for DB file")
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
