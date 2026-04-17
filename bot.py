@@ -841,15 +841,7 @@ def start_bot_with_retry():
         print("🔌 في انتظار الرسائل...")
         print(f"🆔 معرف النسخة (Replica): {os.getenv('RAILWAY_REPLICA_ID', 'unknown')}")
         
-        # Clear any stale updates before starting polling
-        # This helps when restarting after a crash
-        try:
-            print("🧹 تنظيف الرسائل القديمة...")
-            app.bot.get_updates(offset=-1)
-        except Exception:
-            pass  # Ignore errors during cleanup
-        
-        app.run_polling(allowed_updates=Update.ALL_TYPES, stop_signal=None)
+        app.run_polling(allowed_updates=Update.ALL_TYPES)
     except KeyboardInterrupt:
         print("\n🛑 تم إيقاف البوت من قبل المستخدم")
     except Exception as e:
