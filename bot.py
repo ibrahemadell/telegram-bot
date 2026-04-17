@@ -1,3 +1,11 @@
+from manual_import import import_from_csv
+import os
+
+if not os.path.exists("seed_done.txt"):
+    print("🚀 Starting CSV import...")
+    import_from_csv()
+    open("seed_done.txt", "w").close()
+    print("✅ Import finished")
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (ApplicationBuilder, CommandHandler, MessageHandler,
                           ConversationHandler, ContextTypes, filters)
