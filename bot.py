@@ -1,21 +1,3 @@
-from manual_import import import_from_csv
-from database import get_db
-
-conn = get_db()
-cursor = conn.cursor()
-
-# check if data already exists
-cursor.execute("SELECT COUNT(*) FROM persons")
-count = cursor.fetchone()[0]
-
-if count == 0:
-    print("🚀 First time setup: importing CSV...")
-    import_from_csv()
-    print("✅ Import finished")
-else:
-    print("✅ Data already exists, skipping import")
-
-conn.close()
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (ApplicationBuilder, CommandHandler, MessageHandler,
                           ConversationHandler, ContextTypes, filters)
