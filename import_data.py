@@ -20,8 +20,7 @@ def get_db():
 def connect_to_sheets():
     """Connect to Google Sheets"""
     if not os.path.exists(CREDENTIALS_PATH):
-        print(f"❌ ملف الاعتمادات غير موجود: {CREDENTIALS_PATH}")
-        return None
+        raise FileNotFoundError(f"❌ ملف الاعتمادات غير موجود: {CREDENTIALS_PATH}")
 
     try:
         creds = Credentials.from_service_account_file(CREDENTIALS_PATH)
@@ -29,8 +28,7 @@ def connect_to_sheets():
         print("✅ تم الاتصال بـ Google Sheets")
         return gc
     except Exception as e:
-        print(f"❌ خطأ في الاتصال بـ Google Sheets: {e}")
-        return None
+        raise RuntimeError(f"❌ خطأ في الاتصال بـ Google Sheets: {e}") from e
 
 def import_khazna_data(gc, spreadsheet_name="Bot Data"):
     """Import treasury data from Google Sheets"""
@@ -213,13 +211,12 @@ def main():
     init_db()
 
     # Connect to Google Sheets
+    spreadsheet_name = os.environ.get("SPREADSHEET_NAME", "Bot Data")
     gc = connect_to_sheets()
     if not gc:
-        print("❌ فشل الاتصال بـ Google Sheets")
-        return
+        raise RuntimeError("❌ فشل الاتصال بـ Google Sheets")
 
     # Import data
-    spreadsheet_name = os.environ.get("SPREADSHEET_NAME", "Bot Data")
 
     print("\n📊 استيراد بيانات الخزنة...")
     import_khazna_data(gc, spreadsheet_name)
