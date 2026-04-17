@@ -22,6 +22,13 @@ import time
 TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
     raise ValueError("TOKEN environment variable is required")
+
+print("=" * 60)
+print("🚀 تشغيل الدردشة الآلية")
+print(f"📅 الوقت: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+print(f"🔌 معرف العملية: {os.getpid()}")
+print("=" * 60)
+
 init_db()
 
 (MAIN_ACTION, AMOUNT, DESCRIPTION, NAME, NAME_AMOUNT, NAME_AMOUNT_TYPE,
@@ -832,6 +839,16 @@ def start_bot_with_retry():
         print("✅ البوت شغال!")
         print("🔄 جاري الاتصال بـ Telegram...")
         print("🔌 في انتظار الرسائل...")
+        print(f"🆔 معرف النسخة (Replica): {os.getenv('RAILWAY_REPLICA_ID', 'unknown')}")
+        
+        # Clear any stale updates before starting polling
+        # This helps when restarting after a crash
+        try:
+            print("🧹 تنظيف الرسائل القديمة...")
+            app.bot.get_updates(offset=-1)
+        except Exception:
+            pass  # Ignore errors during cleanup
+        
         app.run_polling(allowed_updates=Update.ALL_TYPES, stop_signal=None)
     except KeyboardInterrupt:
         print("\n🛑 تم إيقاف البوت من قبل المستخدم")
@@ -840,6 +857,8 @@ def start_bot_with_retry():
         print(f"📍 نوع الخطأ: {type(e).__name__}")
         import traceback
         traceback.print_exc()
+        # Exit with error code so Railway restarts
+        exit(1)
 
 if __name__ == "__main__":
     try:
