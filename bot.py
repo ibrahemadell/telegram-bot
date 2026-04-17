@@ -808,40 +808,38 @@ app.add_handler(conv_handler)
 import time
 from telegram.error import Conflict
 
+# Error handler callback
+async def error_callback(update, context):
+    """Handle errors raised during polling"""
+    error = context.error
+    if isinstance(error, Conflict):
+        print(f"\n⚠️  تنبيه Conflict: {error}")
+        print(f"🔴 يوجد نسخة أخرى من البوت تعمل!")
+        print("📊 سيتم إعادة تشغيل البوت...")
+        # Re-raise to exit and let Railway restart
+        raise error
+    else:
+        print(f"❌ خطأ في البوت: {error}")
+        import traceback
+        traceback.print_exc()
+
+# Register error handler with the application
+app.error_handler_callback = error_callback
+
 def start_bot_with_retry():
-    """Start bot with retry logic for conflict errors"""
-    retry_count = 0
-    max_retries = 5
-    base_wait = 5
-    is_production = os.getenv("ENVIRONMENT") == "production"
-    
-    while retry_count < max_retries:
-        try:
-            print("✅ البوت شغال!")
-            print("🔄 جاري الاتصال بـ Telegram...")
-            app.run_polling(allowed_updates=Update.ALL_TYPES)
-            break  # If successful, exit the loop
-        except Conflict as e:
-            retry_count += 1
-            wait_time = base_wait * (2 ** retry_count)
-            print(f"\n⚠️  تنبيه: {e}")
-            print(f"🔴 يوجد نسخة أخرى من البوت تعمل!")
-            print(f"⏳ الانتظار {wait_time} ثانية قبل إعادة المحاولة ({retry_count}/{max_retries})...")
-            time.sleep(wait_time)
-        except KeyboardInterrupt:
-            print("\n🛑 تم إيقاف البوت من قبل المستخدم")
-            break
-        except Exception as e:
-            print(f"❌ خطأ في البوت: {e}")
-            print(f"📍 نوع الخطأ: {type(e).__name__}")
-            retry_count += 1
-            if retry_count < max_retries:
-                wait_time = 60 if is_production else 5
-                print(f"⏳ الانتظار {wait_time} ثانية...")
-                time.sleep(wait_time)
-            else:
-                print("❌ فشلت جميع محاولات إعادة الاتصال")
-                break
+    """Start bot - Railway will restart on error"""
+    try:
+        print("✅ البوت شغال!")
+        print("🔄 جاري الاتصال بـ Telegram...")
+        print("🔌 في انتظار الرسائل...")
+        app.run_polling(allowed_updates=Update.ALL_TYPES, stop_signal=None)
+    except KeyboardInterrupt:
+        print("\n🛑 تم إيقاف البوت من قبل المستخدم")
+    except Exception as e:
+        print(f"❌ خطأ في البوت: {e}")
+        print(f"📍 نوع الخطأ: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
     try:
