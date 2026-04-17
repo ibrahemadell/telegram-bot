@@ -8,6 +8,8 @@ import os
 import sys
 
 def main():
+    print(f"🐍 Python interpreter: {sys.executable}")
+    print(f"🧾 Python version: {sys.version.split()[0]}")
     print("🔄 بدء عملية استيراد البيانات من Google Sheets")
     print("=" * 60)
 
