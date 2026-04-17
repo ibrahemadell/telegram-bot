@@ -147,7 +147,7 @@ def init_db():
 
 # ============ دوال الخزنة ============
 
-def add_transaction(sheet, trans_type, amount, description):
+def add_transaction(trans_type, amount, description):
     conn = get_db()
     conn.execute(
         "INSERT INTO khazna (date, type, amount, description) VALUES (?, ?, ?, ?)",
@@ -156,7 +156,7 @@ def add_transaction(sheet, trans_type, amount, description):
     conn.commit()
     conn.close()
 
-def get_balance(sheet):
+def get_balance():
     conn = get_db()
     row = conn.execute("""
         SELECT
@@ -193,7 +193,7 @@ def get_monthly_khazna_report(sheet):
 
 # ============ دوال الأشخاص (عملاء / موردين) ============
 
-def add_person(sheet, name, person_type):
+def add_person(name, person_type):
     conn = get_db()
     try:
         conn.execute("INSERT INTO persons (name, type) VALUES (?, ?)", (name, person_type))
@@ -204,26 +204,26 @@ def add_person(sheet, name, person_type):
         conn.close()
         return False
 
-def delete_person(sheet, name, person_type):
+def delete_person(name, person_type):
     conn = get_db()
     cur = conn.execute("DELETE FROM persons WHERE name=? AND type=?", (name, person_type))
     conn.commit()
     conn.close()
     return cur.rowcount > 0
 
-def get_all_clients(sheet):
+def get_all_clients():
     conn = get_db()
     rows = conn.execute("SELECT name FROM persons WHERE type='عميل' ORDER BY name").fetchall()
     conn.close()
     return [r['name'] for r in rows]
 
-def get_all_suppliers(sheet):
+def get_all_suppliers():
     conn = get_db()
     rows = conn.execute("SELECT name FROM persons WHERE type='مورد' ORDER BY name").fetchall()
     conn.close()
     return [r['name'] for r in rows]
 
-def add_client(sheet, name, amount, trans_type):
+def add_client(name, amount, trans_type):
     today = str(date.today())
     conn = get_db()
     conn.execute(
@@ -237,7 +237,7 @@ def add_client(sheet, name, amount, trans_type):
     conn.commit()
     conn.close()
 
-def add_supplier(sheet, name, amount, trans_type):
+def add_supplier(name, amount, trans_type):
     today = str(date.today())
     conn = get_db()
     conn.execute(
@@ -279,7 +279,7 @@ def get_person_balance(person_type, name):
     return balance
 
 def get_clients_total(sheet):
-    names = get_all_clients(sheet)
+    names = get_all_clients()
     details = []
     total = 0
     for name in names:
@@ -290,7 +290,7 @@ def get_clients_total(sheet):
     return total, details
 
 def get_suppliers_total(sheet):
-    names = get_all_suppliers(sheet)
+    names = get_all_suppliers()
     details = []
     total = 0
     for name in names:
@@ -300,7 +300,7 @@ def get_suppliers_total(sheet):
             total += b
     return total, details
 
-def get_person_transactions(sheet, name, person_type):
+def get_person_transactions(name, person_type):
     conn = get_db()
     rows = conn.execute(
         "SELECT date, trans_type as type, amount FROM person_transactions WHERE person_name=? AND person_type=? ORDER BY date",
@@ -311,7 +311,7 @@ def get_person_transactions(sheet, name, person_type):
 
 # ============ دوال الموظفين ============
 
-def add_employee(sheet, name, salary):
+def add_employee(name, salary):
     conn = get_db()
     try:
         conn.execute("INSERT INTO employees (name, salary) VALUES (?, ?)", (name, salary))
@@ -322,26 +322,26 @@ def add_employee(sheet, name, salary):
         conn.close()
         return False
 
-def delete_employee(sheet, name):
+def delete_employee(name):
     conn = get_db()
     cur = conn.execute("DELETE FROM employees WHERE name=?", (name,))
     conn.commit()
     conn.close()
     return cur.rowcount > 0
 
-def get_all_employees(sheet):
+def get_all_employees():
     conn = get_db()
     rows = conn.execute("SELECT * FROM employees ORDER BY name").fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
-def get_employee_names(sheet):
+def get_employee_names():
     conn = get_db()
     rows = conn.execute("SELECT name FROM employees ORDER BY name").fetchall()
     conn.close()
     return [r['name'] for r in rows]
 
-def add_employee_transaction(sheet, name, trans_type, amount):
+def add_employee_transaction(name, trans_type, amount):
     today = str(date.today())
     conn = get_db()
     conn.execute(
@@ -355,7 +355,7 @@ def add_employee_transaction(sheet, name, trans_type, amount):
     conn.commit()
     conn.close()
 
-def get_employee_balance(sheet, name):
+def get_employee_balance(name):
     conn = get_db()
     emp = conn.execute("SELECT salary FROM employees WHERE name=?", (name,)).fetchone()
     if not emp:
@@ -400,13 +400,13 @@ def get_weekly_employees_report(sheet):
 
 # ============ دوال البنود ============
 
-def get_all_bands(sheet):
+def get_all_bands():
     conn = get_db()
     rows = conn.execute("SELECT name FROM bands ORDER BY name").fetchall()
     conn.close()
     return [r['name'] for r in rows]
 
-def add_band(sheet, name):
+def add_band(name):
     conn = get_db()
     try:
         conn.execute("INSERT INTO bands (name) VALUES (?)", (name,))
@@ -417,7 +417,7 @@ def add_band(sheet, name):
         conn.close()
         return False
 
-def delete_band(sheet, name):
+def delete_band(name):
     conn = get_db()
     cur = conn.execute("DELETE FROM bands WHERE name=?", (name,))
     conn.commit()
@@ -426,7 +426,7 @@ def delete_band(sheet, name):
 
 # ============ دوال المصروفات ============
 
-def add_masrof_edari(sheet, band, amount):
+def add_masrof_edari(band, amount):
     today = str(date.today())
     conn = get_db()
     conn.execute(
@@ -438,7 +438,7 @@ def add_masrof_edari(sheet, band, amount):
     conn.commit()
     conn.close()
 
-def add_masrof_okhra(sheet, amount, note):
+def add_masrof_okhra(amount, note):
     today = str(date.today())
     conn = get_db()
     conn.execute(
@@ -450,7 +450,7 @@ def add_masrof_okhra(sheet, amount, note):
     conn.commit()
     conn.close()
 
-def get_monthly_band_report(sheet, band_name):
+def get_monthly_band_report(band_name):
     month = date.today().strftime("%Y-%m")
     conn = get_db()
     rows = conn.execute(
@@ -462,7 +462,7 @@ def get_monthly_band_report(sheet, band_name):
     details = [{'date': f"{month}-{i+1:02d}", 'amount': r['amount']} for i, r in enumerate(rows)]
     return total, details
 
-def get_monthly_masrof_report(sheet):
+def get_monthly_masrof_report():
     month = date.today().strftime("%Y-%m")
     conn = get_db()
     # إدارية
@@ -488,7 +488,7 @@ def get_full_summary(sheet):
     msg = f"📊 *ملخص الحسابات*\n\n"
     msg += f"{emoji} *رصيد الخزنة:* {balance} جنيه\n"
     try:
-        names = get_all_clients(sheet)
+        names = get_all_clients()
         if names:
             msg += "\n👥 *العملاء:*\n"
             for name in names:
