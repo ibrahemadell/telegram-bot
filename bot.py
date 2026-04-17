@@ -31,28 +31,6 @@ print("=" * 60)
 
 init_db()
 
-from manual_import import import_from_csv
-from database import get_db
-
-conn = get_db()
-cursor = conn.cursor()
-
-# check if data already exists
-cursor.execute("SELECT COUNT(*) FROM persons")
-count = cursor.fetchone()[0]
-
-if count == 0:
-    print("🚀 First time setup: importing CSV...")
-    try:
-        import_from_csv()
-        print("✅ Import finished")
-    except Exception as e:
-        print(f"❌ Error during import: {e}")
-else:
-    print("✅ Data already exists, skipping import")
-
-conn.close()
-
 (MAIN_ACTION, AMOUNT, DESCRIPTION, NAME, NAME_AMOUNT, NAME_AMOUNT_TYPE,
  SELECT_RECORD, SARF_TYPE, MASROF_TYPE, MWZF_SALARY, MWZF_ACTION,
  MWZF_AMOUNT, OKHRA_AMOUNT, OKHRA_NOTE, MWZF_CONFIRM, DAY_SELECT) = range(16)

@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import shutil
 from datetime import date, datetime, timedelta
 
 try:
@@ -39,6 +40,13 @@ def init_db():
             print(f"📁 Directory created or exists: {DB_DIR}")
         else:
             print("📁 Using current working directory for DB file")
+            
+        seed_db = "start.db"
+        if os.path.exists(seed_db) and not os.path.exists(DB_PATH):
+            print(f"📦 Found {seed_db}, copying to {DB_PATH}...")
+            shutil.copy(seed_db, DB_PATH)
+            print("✅ Database copied successfully.")
+
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
