@@ -20,105 +20,119 @@ def get_db():
 
 def init_db():
     print(f"🔍 DB_PATH: {DB_PATH}")
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    print(f"📁 Directory created: {os.path.dirname(DB_PATH)}")
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    c = conn.cursor()
+    try:
+        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+        print(f"📁 Directory created: {os.path.dirname(DB_PATH)}")
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        c = conn.cursor()
+        print("🔧 Creating tables...")
 
-    # جدول الخزنة
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS khazna (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT NOT NULL,
-            type TEXT NOT NULL,
-            amount REAL NOT NULL,
-            description TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
+        # جدول الخزنة
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS khazna (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                type TEXT NOT NULL,
+                amount REAL NOT NULL,
+                description TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        print("✅ khazna table created")
 
-    # جدول الأشخاص (عملاء + موردين)
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS persons (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            type TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(name, type)
-        )
-    """)
+        # جدول الأشخاص (عملاء + موردين)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS persons (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                type TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(name, type)
+            )
+        """)
+        print("✅ persons table created")
 
-    # جدول حركات الأشخاص
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS person_transactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            person_name TEXT NOT NULL,
-            person_type TEXT NOT NULL,
-            date TEXT NOT NULL,
-            trans_type TEXT NOT NULL,
-            amount REAL NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
+        # جدول حركات الأشخاص
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS person_transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                person_name TEXT NOT NULL,
+                person_type TEXT NOT NULL,
+                date TEXT NOT NULL,
+                trans_type TEXT NOT NULL,
+                amount REAL NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        print("✅ person_transactions table created")
 
-    # جدول الموظفين
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS employees (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL,
-            salary REAL NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
+        # جدول الموظفين
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS employees (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                salary REAL NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        print("✅ employees table created")
 
-    # جدول حركات الموظفين
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS employee_transactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            employee_name TEXT NOT NULL,
-            date TEXT NOT NULL,
-            trans_type TEXT NOT NULL,
-            amount REAL NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
+        # جدول حركات الموظفين
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS employee_transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                employee_name TEXT NOT NULL,
+                date TEXT NOT NULL,
+                trans_type TEXT NOT NULL,
+                amount REAL NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        print("✅ employee_transactions table created")
 
-    # جدول البنود
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS bands (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
+        # جدول البنود
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS bands (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        print("✅ bands table created")
 
-    # جدول المصروفات الإدارية
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS masrof_edari (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            band TEXT NOT NULL,
-            amount REAL NOT NULL,
-            date TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
+        # جدول المصروفات الإدارية
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS masrof_edari (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                band TEXT NOT NULL,
+                amount REAL NOT NULL,
+                date TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        print("✅ masrof_edari table created")
 
-    # جدول المصروفات الأخرى
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS masrof_okhra (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            amount REAL NOT NULL,
-            note TEXT,
-            date TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
+        # جدول المصروفات الأخرى
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS masrof_okhra (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                amount REAL NOT NULL,
+                note TEXT,
+                date TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        print("✅ masrof_okhra table created")
 
-    conn.commit()
-    conn.close()
-    print("✅ قاعدة البيانات جاهزة")
+        conn.commit()
+        conn.close()
+        print(f"📄 Database file exists: {os.path.exists(DB_PATH)}")
+        print("✅ قاعدة البيانات جاهزة")
+    except Exception as e:
+        print(f"❌ Database error: {e}")
+        raise
 
 # ============ دوال الخزنة ============
 
