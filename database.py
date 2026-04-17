@@ -159,20 +159,20 @@ def get_balance():
     conn.close()
     return row['balance'] if row else 0
 
-def get_daily_khazna_report(sheet, selected_date):
+def get_daily_khazna_report(selected_date):
     conn = get_db()
     c = conn.cursor()
     c.execute(
-        'SELECT date as "التاريخ", type as "النوع", amount as "المبلغ", description as "الوصف" FROM khazna WHERE date = %s',
+        "SELECT date, type, amount, description FROM khazna WHERE date = %s ORDER BY created_at",
         (selected_date,)
     )
     records = [dict(r) for r in c.fetchall()]
-    total_in = sum(r['المبلغ'] for r in records if r['النوع'] == 'دخل')
-    total_out = sum(r['المبلغ'] for r in records if r['النوع'] == 'صرف')
+    total_in = sum(r['amount'] for r in records if r['type'] == 'دخل')
+    total_out = sum(r['amount'] for r in records if r['type'] == 'صرف')
     conn.close()
     return records, total_in, total_out
 
-def get_monthly_khazna_report(sheet):
+def get_monthly_khazna_report():
     month = date.today().strftime("%Y-%m")
     conn = get_db()
     c = conn.cursor()
@@ -286,7 +286,7 @@ def get_person_balance(person_type, name):
                 balance -= r['amount']
     return balance
 
-def get_clients_total(sheet):
+def get_clients_total():
     names = get_all_clients()
     details = []
     total = 0
@@ -297,7 +297,7 @@ def get_clients_total(sheet):
             total += b
     return total, details
 
-def get_suppliers_total(sheet):
+def get_suppliers_total():
     names = get_all_suppliers()
     details = []
     total = 0
@@ -409,7 +409,7 @@ def get_employee_balance(name):
         'net': net
     }
 
-def get_weekly_employees_report(sheet):
+def get_weekly_employees_report():
     names = get_employee_names()
     report = []
     for name in names:
@@ -513,7 +513,7 @@ def get_monthly_masrof_report():
 
 # ============ الملخص ============
 
-def get_full_summary(sheet):
+def get_full_summary():
     balance = get_balance()
     emoji = "📈" if balance >= 0 else "📉"
     msg = f"📊 *ملخص الحسابات*\n\n"

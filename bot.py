@@ -436,14 +436,14 @@ async def handle_day_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
         emoji = "📈" if net >= 0 else "📉"
         msg = f"📅 *تقرير يوم {day_name} - {selected_date}*\n\n"
         for r in records:
-            icon = "💚" if r['النوع'] == 'دخل' else "🔴"
-            msg += f"{icon} {r['النوع']}: {r['المبلغ']} جنيه - {r['الوصف']}\n"
+            icon = "💚" if r['type'] == 'دخل' else "🔴"
+            msg += f"{icon} {r['type']}: {r['amount']} جنيه - {r['description']}\n"
         msg += f"\n💚 إجمالي الدخل: {total_in} جنيه"
         msg += f"\n🔴 إجمالي الصرف: {total_out} جنيه"
         msg += f"\n{emoji} *الصافي: {net} جنيه*"
         await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
-    except:
-        await update.message.reply_text("❌ حصل خطأ", reply_markup=ReplyKeyboardRemove())
+    except Exception as e:
+        await update.message.reply_text(f"❌ حصل خطأ: {str(e)}", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
 # ============ معالج الاسم ============
@@ -718,7 +718,14 @@ async def get_hesab_or_add_del(update: Update, context: ContextTypes.DEFAULT_TYP
                 import os
                 os.unlink(pdf_path)
             except Exception as e:
-                await update.message.reply_text(f"❌ حصل خطأ: {str(e)}", reply_markup=ReplyKeyboardRemove())
+                # fallback: send as text
+                status = "عليه" if balance > 0 else "ليه عندنا" if balance < 0 else "صفر"
+                msg = f"📊 *تقرير {person_type}: {name}*\n\n"
+                for t in transactions:
+                    icon = "💸" if t['type'] in ['دين', 'مديونية'] else "💰"
+                    msg += f"{icon} {t['date']} | {t['type']} | {t['amount']} جنيه\n"
+                msg += f"\n💰 *الرصيد: {abs(balance)} جنيه ({status})*"
+                await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
 
     elif action == 'del_record_confirm':
         return await confirm_delete_record(update, context)
