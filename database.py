@@ -19,7 +19,12 @@ def get_db():
     return conn
 
 def init_db():
-    conn = get_db()
+    print(f"🔍 DB_PATH: {DB_PATH}")
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    print(f"📁 Directory created: {os.path.dirname(DB_PATH)}")
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
     c = conn.cursor()
 
     # جدول الخزنة
