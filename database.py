@@ -241,6 +241,12 @@ def add_supplier(sheet, name, amount, trans_type):
     conn.close()
 
 def get_person_balance(person_type, name):
+    # Support old sheet-style identifiers from the previous Google Sheets version
+    if person_type == "الخزنة_العملاء":
+        person_type = "عميل"
+    elif person_type == "الخزنة_الموردين":
+        person_type = "مورد"
+
     conn = get_db()
     rows = conn.execute(
         "SELECT trans_type, amount FROM person_transactions WHERE person_name=? AND person_type=?",
@@ -254,7 +260,7 @@ def get_person_balance(person_type, name):
                 balance += r['amount']
             elif r['trans_type'] == 'دفع':
                 balance -= r['amount']
-        else:  # مورد
+        elif person_type == "مورد":
             if r['trans_type'] == 'مديونية':
                 balance += r['amount']
             elif r['trans_type'] == 'دفع':
@@ -266,7 +272,7 @@ def get_clients_total(sheet):
     details = []
     total = 0
     for name in names:
-        b = get_person_balance(sheet, "الخزنة_العملاء", name)
+        b = get_person_balance("عميل", name)
         if b != 0:
             details.append(f"👤 {name}: {b} جنيه")
             total += b
@@ -277,7 +283,7 @@ def get_suppliers_total(sheet):
     details = []
     total = 0
     for name in names:
-        b = get_person_balance(sheet, "الخزنة_الموردين", name)
+        b = get_person_balance("مورد", name)
         if b != 0:
             details.append(f"🏭 {name}: {b} جنيه")
             total += b
@@ -475,7 +481,7 @@ def get_full_summary(sheet):
         if names:
             msg += "\n👥 *العملاء:*\n"
             for name in names:
-                b = get_person_balance(sheet, "الخزنة_العملاء", name)
+                b = get_person_balance("عميل", name)
                 if b > 0:
                     msg += f"  • {name}: عليه {b} جنيه\n"
                 elif b < 0:
@@ -489,7 +495,7 @@ def get_full_summary(sheet):
         if names:
             msg += "\n🏭 *الموردين:*\n"
             for name in names:
-                b = get_person_balance(sheet, "الخزنة_الموردين", name)
+                b = get_person_balance("مورد", name)
                 if b > 0:
                     msg += f"  • {name}: ليه عندنا {b} جنيه\n"
                 elif b < 0:
