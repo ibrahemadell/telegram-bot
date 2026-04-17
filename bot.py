@@ -747,7 +747,8 @@ async def select_sheet_to_delete(update: Update, context: ContextTypes.DEFAULT_T
         return ConversationHandler.END
     context.user_data['del_table'] = table_name
     context.user_data['del_person_type'] = "عميل" if "العملاء" in choice else "مورد" if "الموردين" in choice else None
-    records = get_last_records(table_name, 5)
+    person_type_filter = context.user_data['del_person_type']
+    records = get_last_records(table_name, 5, person_type=person_type_filter)
     if not records:
         await update.message.reply_text("❌ مفيش حركات", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END

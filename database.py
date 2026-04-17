@@ -550,10 +550,16 @@ def get_full_summary():
 
 # ============ حذف حركة ============
 
-def get_last_records(table_name, limit=5):
+def get_last_records(table_name, limit=5, person_type=None):
     conn = get_db()
     c = conn.cursor()
-    c.execute(f"SELECT * FROM {table_name} ORDER BY id DESC LIMIT %s", (limit,))
+    if person_type and table_name == "person_transactions":
+        c.execute(
+            "SELECT * FROM person_transactions WHERE person_type=%s ORDER BY id DESC LIMIT %s",
+            (person_type, limit)
+        )
+    else:
+        c.execute(f"SELECT * FROM {table_name} ORDER BY id DESC LIMIT %s", (limit,))
     rows = c.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -576,9 +582,20 @@ def generate_pdf_report(name, person_type, transactions, balance):
     import arabic_reshaper
     from bidi.algorithm import get_display
 
+    # تسجيل الخط العربي
+    font_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Amiri-Regular.ttf")
+    if os.path.exists(font_path):
+        pdfmetrics.registerFont(TTFont('Amiri', font_path))
+        arabic_font = 'Amiri'
+    else:
+        arabic_font = 'Helvetica'
+
     def ar(text):
-        reshaped = arabic_reshaper.reshape(str(text))
-        return get_display(reshaped)
+        try:
+            reshaped = arabic_reshaper.reshape(str(text))
+            return get_display(reshaped)
+        except:
+            return str(text)
 
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
     doc = SimpleDocTemplate(tmp.name, pagesize=A4,
@@ -590,7 +607,7 @@ def generate_pdf_report(name, person_type, transactions, balance):
                    ar(f"تقرير {person_type}: {name}")]]
     title_table = Table(title_data, colWidths=[200, 200])
     title_table.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+        ('FONTNAME', (0, 0), (-1, -1), arabic_font),
         ('FONTSIZE', (0, 0), (-1, -1), 13),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
@@ -607,7 +624,7 @@ def generate_pdf_report(name, person_type, transactions, balance):
 
     table = Table(data, colWidths=[100, 130, 170])
     table.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+        ('FONTNAME', (0, 0), (-1, -1), arabic_font),
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2C3E50')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
