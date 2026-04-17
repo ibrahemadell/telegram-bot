@@ -822,8 +822,7 @@ async def error_callback(update, context):
     if isinstance(error, Conflict):
         print(f"\n⚠️  تنبيه Conflict: {error}")
         print(f"🔴 يوجد نسخة أخرى من البوت تعمل!")
-        print("📊 سيتم إعادة تشغيل البوت...")
-        # Re-raise to exit and let Railway restart
+        print("📊 سيتم إغلاق البوت الآن لكي تعيد تشغيله بعملية واحدة")
         raise error
     else:
         print(f"❌ خطأ في البوت: {error}")
@@ -831,7 +830,7 @@ async def error_callback(update, context):
         traceback.print_exc()
 
 # Register error handler with the application
-app.error_handler_callback = error_callback
+app.add_error_handler(error_callback)
 
 def start_bot_with_retry():
     """Start bot - Railway will restart on error"""
