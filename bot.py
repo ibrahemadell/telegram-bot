@@ -1,8 +1,9 @@
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (ApplicationBuilder, CommandHandler, MessageHandler,
                           ConversationHandler, ContextTypes, filters)
+from telegram.error import Conflict
 from datetime import date, datetime, timedelta
-from database  import (init_db, add_transaction, add_client, add_supplier,
+from database import (init_db, add_transaction, add_client, add_supplier,
                    get_balance, get_person_balance, get_full_summary,
                    add_person, delete_person, get_last_records, delete_last_record,
                    get_all_clients, get_all_suppliers,
@@ -15,9 +16,8 @@ from database  import (init_db, add_transaction, add_client, add_supplier,
                    get_weekly_employees_report, get_monthly_khazna_report,
                    get_person_transactions, generate_pdf_report,
                    get_daily_khazna_report)
-
-# TOKEN = "8603771009:AAE46Fv4QEU_tsSGlvnN0kPbD1ojDnZnVCA"
 import os
+import time
 
 TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
@@ -805,30 +805,29 @@ conv_handler = ConversationHandler(
 
 app.add_handler(conv_handler)
 
-import asyncio
+import time
 from telegram.error import Conflict
 
-async def start_bot_with_retry():
+def start_bot_with_retry():
     """Start bot with retry logic for conflict errors"""
-    from telegram.error import Conflict
-    import time
-    
     retry_count = 0
     max_retries = 5
     base_wait = 5
+    is_production = os.getenv("ENVIRONMENT") == "production"
     
     while retry_count < max_retries:
         try:
             print("✅ البوت شغال!")
             print("🔄 جاري الاتصال بـ Telegram...")
-            await app.run_polling(allowed_updates=app.bot.get_updates)
+            app.run_polling(allowed_updates=Update.ALL_TYPES)
+            break  # If successful, exit the loop
         except Conflict as e:
             retry_count += 1
             wait_time = base_wait * (2 ** retry_count)
             print(f"\n⚠️  تنبيه: {e}")
             print(f"🔴 يوجد نسخة أخرى من البوت تعمل!")
             print(f"⏳ الانتظار {wait_time} ثانية قبل إعادة المحاولة ({retry_count}/{max_retries})...")
-            await asyncio.sleep(wait_time)
+            time.sleep(wait_time)
         except KeyboardInterrupt:
             print("\n🛑 تم إيقاف البوت من قبل المستخدم")
             break
@@ -837,15 +836,15 @@ async def start_bot_with_retry():
             print(f"📍 نوع الخطأ: {type(e).__name__}")
             retry_count += 1
             if retry_count < max_retries:
-                wait_time = base_wait * os.getenv("ENVIRONMENT") == "production" and 60 or 5
+                wait_time = 60 if is_production else 5
                 print(f"⏳ الانتظار {wait_time} ثانية...")
-                await asyncio.sleep(wait_time)
+                time.sleep(wait_time)
             else:
                 print("❌ فشلت جميع محاولات إعادة الاتصال")
                 break
 
 if __name__ == "__main__":
     try:
-        asyncio.run(start_bot_with_retry())
+        start_bot_with_retry()
     except KeyboardInterrupt:
         print("\n✋ تم إيقاف البوت")
