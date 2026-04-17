@@ -823,7 +823,8 @@ async def error_callback(update, context):
         print(f"\n⚠️  تنبيه Conflict: {error}")
         print(f"🔴 يوجد نسخة أخرى من البوت تعمل!")
         print("📊 سيتم إغلاق البوت الآن لكي تعيد تشغيله بعملية واحدة")
-        raise error
+        import sys
+        sys.exit(1)  # Exit gracefully instead of raising
     else:
         print(f"❌ خطأ في البوت: {error}")
         import traceback
