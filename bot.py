@@ -17,6 +17,15 @@ from database import (init_db, add_transaction, add_client, add_supplier,
                    get_person_transactions, generate_pdf_report,
                    get_daily_khazna_report)
 import os
+import re
+
+def parse_amount(text):
+    text = text.replace('١','1').replace('٢','2').replace('٣','3').replace('٤','4').replace('٥','5').replace('٦','6').replace('٧','7').replace('٨','8').replace('٩','9').replace('٠','0')
+    text = text.replace(',', '.')
+    match = re.search(r'[-+]?\d*\.?\d+', text)
+    if match:
+        return float(match.group())
+    raise ValueError("Invalid number format")
 
 TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
@@ -462,7 +471,7 @@ async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def get_name_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        amount = float(update.message.text)
+        amount = parse_amount(update.message.text)
         action = context.user_data['action']
         name = context.user_data['name']
         if action == 'ameel_deen':
@@ -481,7 +490,7 @@ async def get_name_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
             add_masrof_edari(name, amount)
             await update.message.reply_text(f"✅ تم تسجيل مصروفات إدارية - {name}: {amount} جنيه")
         return ConversationHandler.END
-    except:
+    except ValueError:
         await update.message.reply_text("❌ لازم تكتب رقم بس:")
         return NAME_AMOUNT
 
@@ -489,11 +498,11 @@ async def get_name_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def get_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        amount = float(update.message.text)
+        amount = parse_amount(update.message.text)
         context.user_data['amount'] = amount
         await update.message.reply_text("📝 إيه الوصف؟")
         return DESCRIPTION
-    except:
+    except ValueError:
         await update.message.reply_text("❌ لازم تكتب رقم بس:")
         return AMOUNT
 
@@ -525,11 +534,11 @@ async def get_masrof_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def get_okhra_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        amount = float(update.message.text)
+        amount = parse_amount(update.message.text)
         context.user_data['amount'] = amount
         await update.message.reply_text("📝 اكتب نوت:")
         return OKHRA_NOTE
-    except:
+    except ValueError:
         await update.message.reply_text("❌ لازم تكتب رقم:")
         return OKHRA_AMOUNT
 
@@ -600,19 +609,19 @@ async def get_mwzf_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def get_mwzf_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        amount = float(update.message.text)
+        amount = parse_amount(update.message.text)
         name = context.user_data['name']
         mwzf_type = context.user_data['mwzf_type']
         add_employee_transaction(name, mwzf_type, amount)
         await update.message.reply_text(f"✅ تم تسجيل {mwzf_type} لـ {name}: {amount} جنيه")
         return ConversationHandler.END
-    except:
+    except ValueError:
         await update.message.reply_text("❌ لازم تكتب رقم:")
         return MWZF_AMOUNT
 
 async def get_mwzf_salary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        salary = float(update.message.text)
+        salary = parse_amount(update.message.text)
         name = context.user_data['name']
         result = add_employee(name, salary)
         if result:
@@ -620,7 +629,7 @@ async def get_mwzf_salary(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(f"⚠️ الموظف {name} موجود بالفعل")
         return ConversationHandler.END
-    except:
+    except ValueError:
         await update.message.reply_text("❌ لازم تكتب رقم:")
         return MWZF_SALARY
 
@@ -792,7 +801,7 @@ async def confirm_delete_record(update: Update, context: ContextTypes.DEFAULT_TY
         target = records[choice]
         delete_last_record(table_name, target['id'])
         await update.message.reply_text("✅ تم حذف الحركة", reply_markup=ReplyKeyboardRemove())
-    except:
+    except (ValueError, IndexError):
         await update.message.reply_text("❌ اختيار غلط", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
