@@ -318,6 +318,8 @@ async def handle_main_action(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 msg += f"  💳 سلف: {d['advances']} جنيه\n"
             if d['deductions'] > 0:
                 msg += f"  ✂️ خصم: {d['deductions']} جنيه\n"
+            if d.get('cur_paid', 0) > 0:
+                msg += f"  ✅ تم صرف الأسبوع دا: {d['cur_paid']} جنيه\n"
             msg += f"  💵 *الصافي المتبقي: {d['net']} جنيه*\n\n"
         await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
@@ -573,6 +575,8 @@ async def get_mwzf_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 lines += f"💳 سلف: {data['advances']} جنيه\n"
             if data['deductions'] > 0:
                 lines += f"✂️ خصم: {data['deductions']} جنيه\n"
+            if data.get('cur_paid', 0) > 0:
+                lines += f"✅ تم صرف الأسبوع دا: {data['cur_paid']} جنيه\n"
             lines += f"\n💵 *الباقي: {net} جنيه*\n\nتأكيد الصرف؟"
             await update.message.reply_text(
                 lines,
@@ -691,6 +695,8 @@ async def get_hesab_or_add_del(update: Update, context: ContextTypes.DEFAULT_TYP
                 msg += f"💳 سلف: {data['advances']} جنيه\n"
             if data['deductions'] > 0:
                 msg += f"✂️ خصومات: {data['deductions']} جنيه\n"
+            if data.get('cur_paid', 0) > 0:
+                msg += f"✅ تم صرف الأسبوع دا: {data['cur_paid']} جنيه\n"
             msg += f"\n💵 *الصافي المتبقي: {data['net']} جنيه*"
             await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
 

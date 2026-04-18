@@ -445,10 +445,11 @@ def get_employee_balance(name):
         'salary': salary,
         'weeks': weeks_count,
         'total_salary_due': salary * weeks_count,
-        'bonuses': bonuses,
-        'advances': advances,
-        'deductions': deductions,
+        'bonuses': cur_bonuses,
+        'advances': cur_advances,
+        'deductions': cur_deductions,
         'total_paid': total_paid,
+        'cur_paid': cur_paid,
         'net': current_week_due,
         'carryover': running_carryover
     }
