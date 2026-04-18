@@ -327,7 +327,10 @@ def add_employee_transaction(name, trans_type, amount, note=""):
 
 def get_employee_balance(name):
     """
-    حساب رصيد الموظف مع مراعاة المرتب المتراكم من أسابيع سابقة لم يُصرف
+    حساب رصيد الموظف:
+    - كل أسبوع = مرتب أسبوع واحد فقط
+    - اللي بيتنقل للأسبوع الجديد: فقط الرصيد المتبقي (موجب = لسا ليه فلوس) أو الدين (سالب = اخد أكتر من المستحق)
+    - لو الرصيد صفر بالظبط عند نهاية الأسبوع → مش بيتنقل شيء
     """
     conn = get_db()
     c = conn.cursor()
@@ -346,51 +349,108 @@ def get_employee_balance(name):
     week_start = today - timedelta(days=days_since_saturday)
     week_start_str = week_start.strftime("%Y-%m-%d")
 
-    # جلب كل حركات الموظف
+    # جلب كل حركات الموظف مرتبة بالتاريخ
     c.execute(
-        "SELECT date, trans_type, amount FROM employee_transactions WHERE employee_name=%s ORDER BY date",
+        "SELECT date, trans_type, amount FROM employee_transactions WHERE employee_name=%s ORDER BY created_at",
         (name,)
     )
     all_rows = [dict(r) for r in c.fetchall()]
     conn.close()
 
-    # حساب عدد الأسابيع منذ أول حركة أو منذ أول السبت
-    # نحسب المرتب المتراكم = عدد أسابيع لم يُصرف فيها مرتب * المرتب الأسبوعي
+    if not all_rows:
+        # موظف جديد مفيش حركات - الأسبوع الحالي بس
+        weeks_count = 1
+        total_salary_due = salary
+        total_paid = 0
+        bonuses = 0
+        advances = 0
+        deductions = 0
+        net = salary
+        return {
+            'salary': salary,
+            'weeks': weeks_count,
+            'total_salary_due': total_salary_due,
+            'bonuses': bonuses,
+            'advances': advances,
+            'deductions': deductions,
+            'total_paid': total_paid,
+            'net': net,
+            'carryover': 0
+        }
 
-    # نجيب أول تاريخ للموظف أو تاريخ الإضافة
-    if all_rows:
-        first_date = date.fromisoformat(all_rows[0]['date'])
-    else:
-        first_date = week_start
-
-    # حساب عدد الأسابيع الكاملة من أول السبت قبل أول حركة
+    # نحدد بداية الأسبوع الأول للموظف
+    first_date = date.fromisoformat(all_rows[0]['date'])
     days_since_sat = (first_date.weekday() - 5) % 7
     first_week_start = first_date - timedelta(days=days_since_sat)
 
-    # عدد الأسابيع من أول أسبوع لحد نهاية الأسبوع الحالي
-    weeks_count = ((week_start - first_week_start).days // 7) + 1
+    # نحسب أسبوعاً أسبوعاً ونتابع الرصيد المرحَّل
+    carryover = 0.0  # الرصيد المرحَّل من الأسبوع السابق
 
-    # حساب إجمالي المرتب المستحق = عدد الأسابيع * المرتب الأسبوعي
-    total_salary_due = weeks_count * salary
+    # بناء قائمة بجميع الأسابيع من الأول للحالي
+    current_week = first_week_start
+    all_weeks = []
+    while current_week <= week_start:
+        all_weeks.append(current_week)
+        current_week += timedelta(weeks=1)
 
-    # حساب الحركات
+    weeks_count = len(all_weeks)
+
+    # حساب إجمالي الحركات للأسبوع الحالي فقط (للعرض)
+    current_week_rows = [r for r in all_rows if r['date'] >= week_start_str]
+    prev_rows = [r for r in all_rows if r['date'] < week_start_str]
+
+    # نحسب الرصيد المرحَّل من نهاية الأسبوع السابق
+    # نمشي أسبوع أسبوع ونحسب رصيد نهاية كل أسبوع
+    running_carryover = 0.0
+
+    for i, wk_start in enumerate(all_weeks[:-1]):  # كل الأسابيع ما عدا الحالي
+        wk_end = wk_start + timedelta(days=6)
+        wk_end_str = wk_end.strftime("%Y-%m-%d")
+        wk_start_str_loop = wk_start.strftime("%Y-%m-%d")
+
+        # حركات هذا الأسبوع
+        wk_rows = [r for r in all_rows if wk_start_str_loop <= r['date'] <= wk_end_str]
+
+        wk_paid = sum(r['amount'] for r in wk_rows if r['trans_type'] == 'مرتب')
+        wk_bonuses = sum(r['amount'] for r in wk_rows if r['trans_type'] == 'مكافأة')
+        wk_advances = sum(r['amount'] for r in wk_rows if r['trans_type'] == 'سلفة')
+        wk_deductions = sum(r['amount'] for r in wk_rows if r['trans_type'] == 'خصم')
+
+        # رصيد هذا الأسبوع = مرتب + رصيد مرحَّل + مكافآت - سلف - خصومات - ما صُرف
+        wk_balance = salary + running_carryover + wk_bonuses - wk_advances - wk_deductions - wk_paid
+
+        # الرصيد المرحَّل للأسبوع التالي:
+        # لو موجب → لسا مستحق (نرحَّله)
+        # لو سالب → اخد سلفة من الأسبوع الجاي (نرحَّله كدين)
+        # لو صفر → صفر تماماً (مش بيتنقل شيء)
+        running_carryover = wk_balance
+
+    # حساب الأسبوع الحالي
+    cur_rows = [r for r in all_rows if r['date'] >= week_start_str]
+    cur_paid = sum(r['amount'] for r in cur_rows if r['trans_type'] == 'مرتب')
+    cur_bonuses = sum(r['amount'] for r in cur_rows if r['trans_type'] == 'مكافأة')
+    cur_advances = sum(r['amount'] for r in cur_rows if r['trans_type'] == 'سلفة')
+    cur_deductions = sum(r['amount'] for r in cur_rows if r['trans_type'] == 'خصم')
+
+    # إجمالي مستحق الأسبوع الحالي = مرتب + ما ترحل + مكافآت الأسبوع الحالي
+    current_week_due = salary + running_carryover + cur_bonuses - cur_advances - cur_deductions - cur_paid
+
+    # للعرض - إجماليات كاملة
     total_paid = sum(r['amount'] for r in all_rows if r['trans_type'] == 'مرتب')
     bonuses = sum(r['amount'] for r in all_rows if r['trans_type'] == 'مكافأة')
     advances = sum(r['amount'] for r in all_rows if r['trans_type'] == 'سلفة')
     deductions = sum(r['amount'] for r in all_rows if r['trans_type'] == 'خصم')
 
-    # الصافي = إجمالي المستحق + مكافآت - سلف - خصومات - ما تم صرفه
-    net = total_salary_due + bonuses - advances - deductions - total_paid
-
     return {
         'salary': salary,
         'weeks': weeks_count,
-        'total_salary_due': total_salary_due,
+        'total_salary_due': salary * weeks_count,
         'bonuses': bonuses,
         'advances': advances,
         'deductions': deductions,
         'total_paid': total_paid,
-        'net': net
+        'net': current_week_due,
+        'carryover': running_carryover
     }
 
 def get_weekly_employees_report():

@@ -305,10 +305,13 @@ async def handle_main_action(update: Update, context: ContextTypes.DEFAULT_TYPE)
         msg = "👷 *تقرير الموظفين*\n\n"
         for emp in report:
             d = emp['data']
+            carryover = d.get('carryover', 0)
             msg += f"*{emp['name']}*\n"
             msg += f"  💰 المرتب الأسبوعي: {d['salary']} جنيه\n"
-            msg += f"  📅 أسابيع مستحقة: {d['weeks']}\n"
-            msg += f"  💵 إجمالي المستحق: {d['total_salary_due']} جنيه\n"
+            if carryover > 0:
+                msg += f"  ↩️ مرحَّل من الأسبوع السابق: +{carryover:.0f} جنيه\n"
+            elif carryover < 0:
+                msg += f"  ↩️ سلفة مرحَّلة: {carryover:.0f} جنيه\n"
             msg += f"  🎁 مكافآت: {d['bonuses']} | 💳 سلف: {d['advances']}\n"
             msg += f"  ✂️ خصم: {d['deductions']} | ✅ تم صرف: {d['total_paid']}\n"
             msg += f"  💵 *الصافي المتبقي: {d['net']} جنيه*\n\n"
@@ -554,15 +557,19 @@ async def get_mwzf_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return ConversationHandler.END
             context.user_data['mwzf_net'] = net
             keyboard = [["✅ تأكيد"], ["❌ إلغاء"]]
+            carryover = data.get('carryover', 0)
+            carryover_line = ""
+            if carryover > 0:
+                carryover_line = f"↩️ مرحَّل من الأسبوع السابق: {carryover:+.0f} جنيه\n"
+            elif carryover < 0:
+                carryover_line = f"↩️ سلفة مرحَّلة من الأسبوع الجاي: {carryover:.0f} جنيه\n"
             await update.message.reply_text(
                 f"👷 *{name}*\n\n"
                 f"💰 المرتب الأسبوعي: {data['salary']} جنيه\n"
-                f"📅 أسابيع مستحقة: {data['weeks']}\n"
-                f"💵 إجمالي المستحق: {data['total_salary_due']} جنيه\n"
-                f"🎁 مكافآت: {data['bonuses']} جنيه\n"
-                f"💳 سلف: {data['advances']} جنيه\n"
-                f"✂️ خصومات: {data['deductions']} جنيه\n"
-                f"✅ تم صرف: {data['total_paid']} جنيه\n\n"
+                f"{carryover_line}"
+                f"🎁 مكافآت هذا الأسبوع: {data['bonuses']} جنيه\n"
+                f"💳 سلف هذا الأسبوع: {data['advances']} جنيه\n"
+                f"✂️ خصم هذا الأسبوع: {data['deductions']} جنيه\n\n"
                 f"💵 *الباقي: {net} جنيه*\n\nتأكيد الصرف؟",
                 parse_mode='Markdown',
                 reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
@@ -667,10 +674,16 @@ async def get_hesab_or_add_del(update: Update, context: ContextTypes.DEFAULT_TYP
         if not data:
             await update.message.reply_text("❌ مش لاقي بيانات", reply_markup=ReplyKeyboardRemove())
         else:
+            carryover = data.get('carryover', 0)
+            carryover_line = ""
+            if carryover > 0:
+                carryover_line = f"↩️ مرحَّل من أسبوع سابق: +{carryover:.0f} جنيه\n"
+            elif carryover < 0:
+                carryover_line = f"↩️ سلفة مرحَّلة: {carryover:.0f} جنيه\n"
             msg = (f"👷 *{name}*\n\n"
                    f"💰 المرتب الأسبوعي: {data['salary']} جنيه\n"
-                   f"📅 أسابيع مستحقة: {data['weeks']}\n"
-                   f"💵 إجمالي المستحق: {data['total_salary_due']} جنيه\n"
+                   f"{carryover_line}"
+                   f"📅 عدد الأسابيع: {data['weeks']}\n"
                    f"🎁 مكافآت: {data['bonuses']} جنيه\n"
                    f"💳 سلف: {data['advances']} جنيه\n"
                    f"✂️ خصومات: {data['deductions']} جنيه\n"
