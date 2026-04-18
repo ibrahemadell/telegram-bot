@@ -75,6 +75,7 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        c.execute("ALTER TABLE employee_transactions ADD COLUMN IF NOT EXISTS note TEXT DEFAULT ''")
         c.execute("""
             CREATE TABLE IF NOT EXISTS bands (
                 id SERIAL PRIMARY KEY,
