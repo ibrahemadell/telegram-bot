@@ -13,8 +13,6 @@ try:
 except ImportError:
     REPORTLAB_AVAILABLE = False
 
-# ============ إعداد قاعدة البيانات ============
-
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
     raise ValueError("❌ DATABASE_URL environment variable is required")
@@ -24,13 +22,10 @@ def get_db():
     return conn
 
 def init_db():
-    print(f"🔍 Connecting to PostgreSQL database...")
+    print("🔍 Connecting to PostgreSQL database...")
     try:
         conn = get_db()
         c = conn.cursor()
-        print("🔧 Creating tables...")
-
-        # جدول الخزنة
         c.execute("""
             CREATE TABLE IF NOT EXISTS khazna (
                 id SERIAL PRIMARY KEY,
@@ -41,9 +36,6 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        print("✅ khazna table ready")
-
-        # جدول الأشخاص (عملاء + موردين)
         c.execute("""
             CREATE TABLE IF NOT EXISTS persons (
                 id SERIAL PRIMARY KEY,
@@ -53,9 +45,6 @@ def init_db():
                 UNIQUE(name, type)
             )
         """)
-        print("✅ persons table ready")
-
-        # جدول حركات الأشخاص
         c.execute("""
             CREATE TABLE IF NOT EXISTS person_transactions (
                 id SERIAL PRIMARY KEY,
@@ -67,9 +56,6 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        print("✅ person_transactions table ready")
-
-        # جدول الموظفين
         c.execute("""
             CREATE TABLE IF NOT EXISTS employees (
                 id SERIAL PRIMARY KEY,
@@ -78,9 +64,6 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        print("✅ employees table ready")
-
-        # جدول حركات الموظفين
         c.execute("""
             CREATE TABLE IF NOT EXISTS employee_transactions (
                 id SERIAL PRIMARY KEY,
@@ -88,12 +71,10 @@ def init_db():
                 date TEXT NOT NULL,
                 trans_type TEXT NOT NULL,
                 amount REAL NOT NULL,
+                note TEXT DEFAULT '',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        print("✅ employee_transactions table ready")
-
-        # جدول البنود
         c.execute("""
             CREATE TABLE IF NOT EXISTS bands (
                 id SERIAL PRIMARY KEY,
@@ -101,9 +82,6 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        print("✅ bands table ready")
-
-        # جدول المصروفات الإدارية
         c.execute("""
             CREATE TABLE IF NOT EXISTS masrof_edari (
                 id SERIAL PRIMARY KEY,
@@ -113,9 +91,6 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        print("✅ masrof_edari table ready")
-
-        # جدول المصروفات الأخرى
         c.execute("""
             CREATE TABLE IF NOT EXISTS masrof_okhra (
                 id SERIAL PRIMARY KEY,
@@ -125,8 +100,6 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        print("✅ masrof_okhra table ready")
-
         conn.commit()
         conn.close()
         print("✅ قاعدة البيانات جاهزة")
@@ -134,7 +107,7 @@ def init_db():
         print(f"❌ Database error: {e}")
         raise
 
-# ============ دوال الخزنة ============
+# ============ الخزنة ============
 
 def add_transaction(trans_type, amount, description):
     conn = get_db()
@@ -157,7 +130,7 @@ def get_balance():
     """)
     row = c.fetchone()
     conn.close()
-    return row['balance'] if row else 0
+    return float(row['balance']) if row else 0
 
 def get_daily_khazna_report(selected_date):
     conn = get_db()
@@ -184,9 +157,9 @@ def get_monthly_khazna_report():
     """, (f"{month}%",))
     row = c.fetchone()
     conn.close()
-    return (row['total_in'], row['total_out']) if row else (0, 0)
+    return (float(row['total_in']), float(row['total_out'])) if row else (0, 0)
 
-# ============ دوال الأشخاص (عملاء / موردين) ============
+# ============ العملاء والموردين ============
 
 def add_person(name, person_type):
     conn = get_db()
@@ -196,11 +169,7 @@ def add_person(name, person_type):
         conn.commit()
         conn.close()
         return True
-    except psycopg2.errors.UniqueViolation:
-        conn.rollback()
-        conn.close()
-        return False
-    except psycopg2.IntegrityError:
+    except (psycopg2.errors.UniqueViolation, psycopg2.IntegrityError):
         conn.rollback()
         conn.close()
         return False
@@ -254,78 +223,76 @@ def add_supplier(name, amount, trans_type):
     )
     if trans_type == "دفع":
         c.execute("INSERT INTO khazna (date, type, amount, description) VALUES (%s, %s, %s, %s)",
-                  (today, "صرف", amount, f"دفع لمورد: {name}"))
+                  (today, "صرف", amount, f"دفعة لمورد: {name}"))
     conn.commit()
     conn.close()
 
 def get_person_balance(person_type, name):
-    if person_type == "الخزنة_العملاء":
-        person_type = "عميل"
-    elif person_type == "الخزنة_الموردين":
-        person_type = "مورد"
-
+    """person_type = 'عميل' أو 'مورد'"""
     conn = get_db()
     c = conn.cursor()
-    c.execute(
-        "SELECT trans_type, amount FROM person_transactions WHERE person_name=%s AND person_type=%s",
-        (name, person_type)
-    )
-    rows = c.fetchall()
+    c.execute("""
+        SELECT
+            COALESCE(SUM(CASE WHEN trans_type IN ('دين','مديونية') THEN amount ELSE 0 END), 0) -
+            COALESCE(SUM(CASE WHEN trans_type = 'دفع' THEN amount ELSE 0 END), 0) as balance
+        FROM person_transactions
+        WHERE person_name=%s AND person_type=%s
+    """, (name, person_type))
+    row = c.fetchone()
     conn.close()
-    balance = 0
-    for r in rows:
-        if person_type == "عميل":
-            if r['trans_type'] == 'دين':
-                balance += r['amount']
-            elif r['trans_type'] == 'دفع':
-                balance -= r['amount']
-        elif person_type == "مورد":
-            if r['trans_type'] == 'مديونية':
-                balance += r['amount']
-            elif r['trans_type'] == 'دفع':
-                balance -= r['amount']
-    return balance
-
-def get_clients_total():
-    names = get_all_clients()
-    details = []
-    total = 0
-    for name in names:
-        b = get_person_balance("عميل", name)
-        if b != 0:
-            details.append(f"👤 {name}: {b} جنيه")
-            total += b
-    return total, details
-
-def get_suppliers_total():
-    names = get_all_suppliers()
-    details = []
-    total = 0
-    for name in names:
-        b = get_person_balance("مورد", name)
-        if b != 0:
-            details.append(f"🏭 {name}: {b} جنيه")
-            total += b
-    return total, details
+    return float(row['balance']) if row else 0
 
 def get_person_transactions(name, person_type):
     conn = get_db()
     c = conn.cursor()
     c.execute(
-        "SELECT date, trans_type as type, amount FROM person_transactions WHERE person_name=%s AND person_type=%s ORDER BY date",
+        "SELECT date, trans_type as type, amount FROM person_transactions WHERE person_name=%s AND person_type=%s ORDER BY created_at",
         (name, person_type)
     )
+    rows = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return rows
+
+def get_clients_total():
+    names = get_all_clients()
+    total = 0
+    details = []
+    for name in names:
+        b = get_person_balance("عميل", name)
+        if b > 0:
+            total += b
+            details.append(f"  • {name}: {b} جنيه")
+    return total, details
+
+def get_suppliers_total():
+    names = get_all_suppliers()
+    total = 0
+    details = []
+    for name in names:
+        b = get_person_balance("مورد", name)
+        if b > 0:
+            total += b
+            details.append(f"  • {name}: {b} جنيه")
+    return total, details
+
+# ============ الموظفين ============
+
+def get_all_employees():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT name, salary FROM employees ORDER BY name")
     rows = c.fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    return [(r['name'], float(r['salary'])) for r in rows]
 
-# ============ دوال الموظفين ============
+def get_employee_names():
+    return [e[0] for e in get_all_employees()]
 
-def add_employee(name, salary):
+def add_employee(name, weekly_salary):
     conn = get_db()
     c = conn.cursor()
     try:
-        c.execute("INSERT INTO employees (name, salary) VALUES (%s, %s)", (name, salary))
+        c.execute("INSERT INTO employees (name, salary) VALUES (%s, %s)", (name, weekly_salary))
         conn.commit()
         conn.close()
         return True
@@ -343,65 +310,82 @@ def delete_employee(name):
     conn.close()
     return affected > 0
 
-def get_all_employees():
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT * FROM employees ORDER BY name")
-    rows = c.fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-def get_employee_names():
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT name FROM employees ORDER BY name")
-    rows = c.fetchall()
-    conn.close()
-    return [r['name'] for r in rows]
-
-def add_employee_transaction(name, trans_type, amount):
+def add_employee_transaction(name, trans_type, amount, note=""):
     today = str(date.today())
     conn = get_db()
     c = conn.cursor()
     c.execute(
-        "INSERT INTO employee_transactions (employee_name, date, trans_type, amount) VALUES (%s, %s, %s, %s)",
-        (name, today, trans_type, amount)
+        "INSERT INTO employee_transactions (employee_name, date, trans_type, amount, note) VALUES (%s, %s, %s, %s, %s)",
+        (name, today, trans_type, amount, note)
     )
-    if trans_type in ["مرتب", "سلفة"]:
+    # المرتب والمكافأة والسلفة بتخصم من الخزنة، الخصم بس على المرتب
+    if trans_type in ["مرتب", "مكافأة", "سلفة"]:
         c.execute("INSERT INTO khazna (date, type, amount, description) VALUES (%s, %s, %s, %s)",
                   (today, "صرف", amount, f"{trans_type} موظف: {name}"))
     conn.commit()
     conn.close()
 
 def get_employee_balance(name):
+    """
+    حساب رصيد الموظف مع مراعاة المرتب المتراكم من أسابيع سابقة لم يُصرف
+    """
     conn = get_db()
     c = conn.cursor()
+
+    # جلب بيانات الموظف
     c.execute("SELECT salary FROM employees WHERE name=%s", (name,))
     emp = c.fetchone()
     if not emp:
         conn.close()
         return None
+    salary = float(emp['salary'])
 
+    # حساب بداية الأسبوع الحالي (السبت)
     today = date.today()
     days_since_saturday = (today.weekday() - 5) % 7
-    week_start = str(today - timedelta(days=days_since_saturday))
+    week_start = today - timedelta(days=days_since_saturday)
+    week_start_str = week_start.strftime("%Y-%m-%d")
 
+    # جلب كل حركات الموظف
     c.execute(
-        "SELECT trans_type, amount FROM employee_transactions WHERE employee_name=%s AND date >= %s",
-        (name, week_start)
+        "SELECT date, trans_type, amount FROM employee_transactions WHERE employee_name=%s ORDER BY date",
+        (name,)
     )
-    rows = c.fetchall()
+    all_rows = [dict(r) for r in c.fetchall()]
     conn.close()
 
-    salary = emp['salary']
-    bonuses = sum(r['amount'] for r in rows if r['trans_type'] == 'مكافأة')
-    advances = sum(r['amount'] for r in rows if r['trans_type'] == 'سلفة')
-    deductions = sum(r['amount'] for r in rows if r['trans_type'] == 'خصم')
-    total_paid = sum(r['amount'] for r in rows if r['trans_type'] == 'مرتب')
+    # حساب عدد الأسابيع منذ أول حركة أو منذ أول السبت
+    # نحسب المرتب المتراكم = عدد أسابيع لم يُصرف فيها مرتب * المرتب الأسبوعي
 
-    net = salary + bonuses - advances - deductions - total_paid
+    # نجيب أول تاريخ للموظف أو تاريخ الإضافة
+    if all_rows:
+        first_date = date.fromisoformat(all_rows[0]['date'])
+    else:
+        first_date = week_start
+
+    # حساب عدد الأسابيع الكاملة من أول السبت قبل أول حركة
+    days_since_sat = (first_date.weekday() - 5) % 7
+    first_week_start = first_date - timedelta(days=days_since_sat)
+
+    # عدد الأسابيع من أول أسبوع لحد نهاية الأسبوع الحالي
+    weeks_count = ((week_start - first_week_start).days // 7) + 1
+
+    # حساب إجمالي المرتب المستحق = عدد الأسابيع * المرتب الأسبوعي
+    total_salary_due = weeks_count * salary
+
+    # حساب الحركات
+    total_paid = sum(r['amount'] for r in all_rows if r['trans_type'] == 'مرتب')
+    bonuses = sum(r['amount'] for r in all_rows if r['trans_type'] == 'مكافأة')
+    advances = sum(r['amount'] for r in all_rows if r['trans_type'] == 'سلفة')
+    deductions = sum(r['amount'] for r in all_rows if r['trans_type'] == 'خصم')
+
+    # الصافي = إجمالي المستحق + مكافآت - سلف - خصومات - ما تم صرفه
+    net = total_salary_due + bonuses - advances - deductions - total_paid
+
     return {
         'salary': salary,
+        'weeks': weeks_count,
+        'total_salary_due': total_salary_due,
         'bonuses': bonuses,
         'advances': advances,
         'deductions': deductions,
@@ -418,7 +402,7 @@ def get_weekly_employees_report():
             report.append({'name': name, 'data': data})
     return report
 
-# ============ دوال البنود ============
+# ============ البنود ============
 
 def get_all_bands():
     conn = get_db()
@@ -450,16 +434,13 @@ def delete_band(name):
     conn.close()
     return affected > 0
 
-# ============ دوال المصروفات ============
+# ============ المصروفات ============
 
 def add_masrof_edari(band, amount):
     today = str(date.today())
     conn = get_db()
     c = conn.cursor()
-    c.execute(
-        "INSERT INTO masrof_edari (band, amount, date) VALUES (%s, %s, %s)",
-        (band, amount, today)
-    )
+    c.execute("INSERT INTO masrof_edari (band, amount, date) VALUES (%s, %s, %s)", (band, amount, today))
     c.execute("INSERT INTO khazna (date, type, amount, description) VALUES (%s, %s, %s, %s)",
               (today, "صرف", amount, f"مصروفات إدارية: {band}"))
     conn.commit()
@@ -469,10 +450,7 @@ def add_masrof_okhra(amount, note):
     today = str(date.today())
     conn = get_db()
     c = conn.cursor()
-    c.execute(
-        "INSERT INTO masrof_okhra (amount, note, date) VALUES (%s, %s, %s)",
-        (amount, note, today)
-    )
+    c.execute("INSERT INTO masrof_okhra (amount, note, date) VALUES (%s, %s, %s)", (amount, note, today))
     c.execute("INSERT INTO khazna (date, type, amount, description) VALUES (%s, %s, %s, %s)",
               (today, "صرف", amount, f"مصروفات أخرى: {note}"))
     conn.commit()
@@ -483,13 +461,13 @@ def get_monthly_band_report(band_name):
     conn = get_db()
     c = conn.cursor()
     c.execute(
-        "SELECT amount FROM masrof_edari WHERE band=%s AND date LIKE %s",
+        "SELECT date, amount FROM masrof_edari WHERE band=%s AND date LIKE %s ORDER BY date",
         (band_name, f"{month}%")
     )
     rows = c.fetchall()
     conn.close()
     total = sum(r['amount'] for r in rows)
-    details = [{'date': f"{month}-{i+1:02d}", 'amount': r['amount']} for i, r in enumerate(rows)]
+    details = [{'date': r['date'], 'amount': r['amount']} for r in rows]
     return total, details
 
 def get_monthly_masrof_report():
@@ -502,12 +480,9 @@ def get_monthly_masrof_report():
     )
     rows_edari = c.fetchall()
     bands = {r['band']: r['total'] for r in rows_edari}
-    c.execute(
-        "SELECT SUM(amount) as total FROM masrof_okhra WHERE date LIKE %s",
-        (f"{month}%",)
-    )
+    c.execute("SELECT SUM(amount) as total FROM masrof_okhra WHERE date LIKE %s", (f"{month}%",))
     row_okhra = c.fetchone()
-    okhra_total = row_okhra['total'] if row_okhra and row_okhra['total'] else 0
+    okhra_total = float(row_okhra['total']) if row_okhra and row_okhra['total'] else 0
     conn.close()
     return bands, okhra_total
 
@@ -575,14 +550,13 @@ def delete_last_record(table_name, record_id):
 
 def generate_pdf_report(name, person_type, transactions, balance):
     if not REPORTLAB_AVAILABLE:
-        raise ImportError("ReportLab is not installed. Cannot generate PDF reports.")
+        raise ImportError("ReportLab غير متاح")
 
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Spacer
     from reportlab.lib import colors
     import arabic_reshaper
     from bidi.algorithm import get_display
 
-    # تسجيل الخط العربي
     font_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Amiri-Regular.ttf")
     if os.path.exists(font_path):
         pdfmetrics.registerFont(TTFont('Amiri', font_path))

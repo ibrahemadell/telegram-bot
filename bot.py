@@ -17,16 +17,14 @@ from database import (init_db, add_transaction, add_client, add_supplier,
                    get_person_transactions, generate_pdf_report,
                    get_daily_khazna_report)
 import os
-import time
 
 TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
     raise ValueError("TOKEN environment variable is required")
 
 print("=" * 60)
-print("🚀 تشغيل الدردشة الآلية")
+print("🚀 تشغيل البوت")
 print(f"📅 الوقت: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-print(f"🔌 معرف العملية: {os.getpid()}")
 print("=" * 60)
 
 init_db()
@@ -35,7 +33,7 @@ init_db()
  SELECT_RECORD, SARF_TYPE, MASROF_TYPE, MWZF_SALARY, MWZF_ACTION,
  MWZF_AMOUNT, OKHRA_AMOUNT, OKHRA_NOTE, MWZF_CONFIRM, DAY_SELECT) = range(16)
 
-# ============ أوامر العملاء ============
+# ============ القوائم الرئيسية ============
 
 async def ameel_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -64,19 +62,12 @@ async def mwzf_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return MAIN_ACTION
 
 async def dakhl_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        ["👤 دفعة من عميل"],
-        ["💰 دخل يدوي للخزنة"]
-    ]
+    keyboard = [["👤 دفعة من عميل"], ["💰 دخل يدوي للخزنة"]]
     await update.message.reply_text("💰 اختار نوع الدخل:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
     return MAIN_ACTION
 
 async def sarf_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        ["🏭 صرف لمورد"],
-        ["👷 صرف لموظف"],
-        ["📋 مصروفات متنوعة"]
-    ]
+    keyboard = [["🏭 صرف لمورد"], ["👷 صرف لموظف"], ["📋 مصروفات متنوعة"]]
     await update.message.reply_text("💸 اختار نوع الصرف:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
     return MAIN_ACTION
 
@@ -97,10 +88,10 @@ async def eedadat_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ["💰 رصيد الخزنة", "💸 إجمالي المديونيات"],
         ["💵 فلوس العملاء"]
     ]
-    await update.message.reply_text("⚙️ الإعدادات والمزيد:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+    await update.message.reply_text("⚙️ الإعدادات:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
     return MAIN_ACTION
 
-# ============ معالج الاختيارات الرئيسية ============
+# ============ معالج الاختيارات ============
 
 async def handle_main_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     choice = update.message.text
@@ -311,13 +302,16 @@ async def handle_main_action(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if not report:
             await update.message.reply_text("📭 مفيش موظفين", reply_markup=ReplyKeyboardRemove())
             return ConversationHandler.END
-        msg = "👷 *تقرير الموظفين الأسبوعي*\n\n"
+        msg = "👷 *تقرير الموظفين*\n\n"
         for emp in report:
             d = emp['data']
             msg += f"*{emp['name']}*\n"
-            msg += f"  💰 المرتب: {d['salary']} | 🎁 مكافآت: {d['bonuses']}\n"
-            msg += f"  💳 سلف: {d['advances']} | ✂️ خصم: {d['deductions']}\n"
-            msg += f"  💵 الصافي المتبقي: {d['net']} جنيه\n\n"
+            msg += f"  💰 المرتب الأسبوعي: {d['salary']} جنيه\n"
+            msg += f"  📅 أسابيع مستحقة: {d['weeks']}\n"
+            msg += f"  💵 إجمالي المستحق: {d['total_salary_due']} جنيه\n"
+            msg += f"  🎁 مكافآت: {d['bonuses']} | 💳 سلف: {d['advances']}\n"
+            msg += f"  ✂️ خصم: {d['deductions']} | ✅ تم صرف: {d['total_paid']}\n"
+            msg += f"  💵 *الصافي المتبقي: {d['net']} جنيه*\n\n"
         await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
 
@@ -354,7 +348,6 @@ async def handle_main_action(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return NAME_AMOUNT_TYPE
 
     elif choice == "📅 تقرير يومي":
-        # أيام الأسبوع من السبت للجمعة
         today = date.today()
         days_since_saturday = (today.weekday() - 5) % 7
         week_start = today - timedelta(days=days_since_saturday)
@@ -362,8 +355,7 @@ async def handle_main_action(update: Update, context: ContextTypes.DEFAULT_TYPE)
         keyboard = []
         for i in range(7):
             day = week_start + timedelta(days=i)
-            day_name = days_ar[i]
-            keyboard.append([f"{day_name} - {day.strftime('%Y-%m-%d')}"])
+            keyboard.append([f"{days_ar[i]} - {day.strftime('%Y-%m-%d')}"])
         context.user_data['action'] = 'taqrir_yawmi'
         await update.message.reply_text("📅 اختار اليوم:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
         return DAY_SELECT
@@ -386,7 +378,7 @@ async def handle_main_action(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     elif choice == "🗑️ حذف حركة":
         keyboard = [["🏦 الخزنة"], ["👥 العملاء"], ["🏭 الموردين"]]
-        await update.message.reply_text("اختار من أي شيت؟", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+        await update.message.reply_text("اختار من أي جدول؟", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
         return SELECT_RECORD
 
     elif choice == "📊 ملخص":
@@ -421,14 +413,15 @@ async def handle_main_action(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.message.reply_text("❌ اختيار غلط", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
-# ============ معالج اختيار اليوم ============
+# ============ التقرير اليومي ============
 
 async def handle_day_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    choice = update.message.text
     try:
-        selected_date = choice.split(" - ")[1]
+        choice = update.message.text
+        parts = choice.split(" - ")
+        selected_date = parts[1].strip()
+        day_name = parts[0].strip()
         records, total_in, total_out = get_daily_khazna_report(selected_date)
-        day_name = choice.split(" - ")[0]
         if not records:
             await update.message.reply_text(f"📭 مفيش حركات يوم {day_name}", reply_markup=ReplyKeyboardRemove())
             return ConversationHandler.END
@@ -446,7 +439,7 @@ async def handle_day_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ حصل خطأ: {str(e)}", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
-# ============ معالج الاسم ============
+# ============ الاسم ============
 
 async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['name'] = update.message.text
@@ -483,7 +476,7 @@ async def get_name_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ لازم تكتب رقم بس:")
         return NAME_AMOUNT
 
-# ============ معالج المبلغ والوصف ============
+# ============ المبلغ والوصف ============
 
 async def get_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -563,7 +556,9 @@ async def get_mwzf_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard = [["✅ تأكيد"], ["❌ إلغاء"]]
             await update.message.reply_text(
                 f"👷 *{name}*\n\n"
-                f"💰 المرتب: {data['salary']} جنيه\n"
+                f"💰 المرتب الأسبوعي: {data['salary']} جنيه\n"
+                f"📅 أسابيع مستحقة: {data['weeks']}\n"
+                f"💵 إجمالي المستحق: {data['total_salary_due']} جنيه\n"
                 f"🎁 مكافآت: {data['bonuses']} جنيه\n"
                 f"💳 سلف: {data['advances']} جنيه\n"
                 f"✂️ خصومات: {data['deductions']} جنيه\n"
@@ -613,7 +608,7 @@ async def get_mwzf_salary(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ لازم تكتب رقم:")
         return MWZF_SALARY
 
-# ============ الفانكشن الرئيسية NAME_AMOUNT_TYPE ============
+# ============ الفانكشن الرئيسية ============
 
 async def get_hesab_or_add_del(update: Update, context: ContextTypes.DEFAULT_TYPE):
     action = context.user_data.get('action')
@@ -650,7 +645,7 @@ async def get_hesab_or_add_del(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardRemove())
 
     elif action == 'hesab_ameel':
-        b = get_person_balance("الخزنة_العملاء", name)
+        b = get_person_balance("عميل", name)
         if b > 0:
             await update.message.reply_text(f"👤 {name}\n💰 عليه: {b} جنيه", reply_markup=ReplyKeyboardRemove())
         elif b < 0:
@@ -659,7 +654,7 @@ async def get_hesab_or_add_del(update: Update, context: ContextTypes.DEFAULT_TYP
             await update.message.reply_text(f"👤 {name}\n✅ حسابه صفر", reply_markup=ReplyKeyboardRemove())
 
     elif action == 'hesab_mwrd':
-        b = get_person_balance("الخزنة_الموردين", name)
+        b = get_person_balance("مورد", name)
         if b > 0:
             await update.message.reply_text(f"🏭 {name}\n💰 ليه عندنا: {b} جنيه", reply_markup=ReplyKeyboardRemove())
         elif b < 0:
@@ -673,7 +668,9 @@ async def get_hesab_or_add_del(update: Update, context: ContextTypes.DEFAULT_TYP
             await update.message.reply_text("❌ مش لاقي بيانات", reply_markup=ReplyKeyboardRemove())
         else:
             msg = (f"👷 *{name}*\n\n"
-                   f"💰 المرتب: {data['salary']} جنيه\n"
+                   f"💰 المرتب الأسبوعي: {data['salary']} جنيه\n"
+                   f"📅 أسابيع مستحقة: {data['weeks']}\n"
+                   f"💵 إجمالي المستحق: {data['total_salary_due']} جنيه\n"
                    f"🎁 مكافآت: {data['bonuses']} جنيه\n"
                    f"💳 سلف: {data['advances']} جنيه\n"
                    f"✂️ خصومات: {data['deductions']} جنيه\n"
@@ -715,10 +712,8 @@ async def get_hesab_or_add_del(update: Update, context: ContextTypes.DEFAULT_TYP
                 pdf_path = generate_pdf_report(name, person_type, transactions, balance)
                 with open(pdf_path, 'rb') as f:
                     await update.message.reply_document(f, filename=f"تقرير_{name}.pdf")
-                import os
                 os.unlink(pdf_path)
             except Exception as e:
-                # fallback: send as text
                 status = "عليه" if balance > 0 else "ليه عندنا" if balance < 0 else "صفر"
                 msg = f"📊 *تقرير {person_type}: {name}*\n\n"
                 for t in transactions:
@@ -738,16 +733,19 @@ async def select_sheet_to_delete(update: Update, context: ContextTypes.DEFAULT_T
     choice = update.message.text
     if "الخزنة" in choice and "العملاء" not in choice and "الموردين" not in choice:
         table_name = "khazna"
+        person_type_filter = None
     elif "العملاء" in choice:
         table_name = "person_transactions"
+        person_type_filter = "عميل"
     elif "الموردين" in choice:
         table_name = "person_transactions"
+        person_type_filter = "مورد"
     else:
         await update.message.reply_text("❌ اختيار غلط", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
+
     context.user_data['del_table'] = table_name
-    context.user_data['del_person_type'] = "عميل" if "العملاء" in choice else "مورد" if "الموردين" in choice else None
-    person_type_filter = context.user_data['del_person_type']
+    context.user_data['del_person_type'] = person_type_filter
     records = get_last_records(table_name, 5, person_type=person_type_filter)
     if not records:
         await update.message.reply_text("❌ مفيش حركات", reply_markup=ReplyKeyboardRemove())
@@ -770,10 +768,8 @@ async def confirm_delete_record(update: Update, context: ContextTypes.DEFAULT_TY
         records = context.user_data['del_records']
         table_name = context.user_data['del_table']
         target = records[choice]
-        record_id = target['id']
-        delete_last_record(table_name, record_id)
+        delete_last_record(table_name, target['id'])
         await update.message.reply_text("✅ تم حذف الحركة", reply_markup=ReplyKeyboardRemove())
-        return ConversationHandler.END
     except:
         await update.message.reply_text("❌ اختيار غلط", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
@@ -820,48 +816,27 @@ conv_handler = ConversationHandler(
 
 app.add_handler(conv_handler)
 
-import time
-from telegram.error import Conflict
-
-# Error handler callback
 async def error_callback(update, context):
-    """Handle errors raised during polling"""
     error = context.error
     if isinstance(error, Conflict):
-        print(f"\n⚠️  تنبيه Conflict: {error}")
-        print(f"🔴 يوجد نسخة أخرى من البوت تعمل!")
-        print("📊 سيتم إغلاق البوت الآن لكي تعيد تشغيله بعملية واحدة")
+        print(f"⚠️ Conflict: {error}")
         import sys
-        sys.exit(1)  # Exit gracefully instead of raising
+        sys.exit(1)
     else:
-        print(f"❌ خطأ في البوت: {error}")
+        print(f"❌ خطأ: {error}")
         import traceback
         traceback.print_exc()
 
-# Register error handler with the application
 app.add_error_handler(error_callback)
-
-def start_bot_with_retry():
-    """Start bot - Railway will restart on error"""
-    try:
-        print("✅ البوت شغال!")
-        print("🔄 جاري الاتصال بـ Telegram...")
-        print("🔌 في انتظار الرسائل...")
-        print(f"🆔 معرف النسخة (Replica): {os.getenv('RAILWAY_REPLICA_ID', 'unknown')}")
-        
-        app.run_polling(allowed_updates=Update.ALL_TYPES)
-    except KeyboardInterrupt:
-        print("\n🛑 تم إيقاف البوت من قبل المستخدم")
-    except Exception as e:
-        print(f"❌ خطأ في البوت: {e}")
-        print(f"📍 نوع الخطأ: {type(e).__name__}")
-        import traceback
-        traceback.print_exc()
-        # Exit with error code so Railway restarts
-        exit(1)
 
 if __name__ == "__main__":
     try:
-        start_bot_with_retry()
+        print("✅ البوت شغال!")
+        app.run_polling(allowed_updates=Update.ALL_TYPES)
     except KeyboardInterrupt:
         print("\n✋ تم إيقاف البوت")
+    except Exception as e:
+        print(f"❌ خطأ: {e}")
+        import traceback
+        traceback.print_exc()
+        exit(1)
