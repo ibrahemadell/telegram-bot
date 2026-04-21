@@ -235,7 +235,7 @@ def get_person_balance(person_type, name):
     c.execute("""
         SELECT
             COALESCE(SUM(CASE WHEN trans_type IN ('دين','مديونية') THEN amount ELSE 0 END), 0) -
-            COALESCE(SUM(CASE WHEN trans_type = 'دفع' THEN amount ELSE 0 END), 0) as balance
+            COALESCE(SUM(CASE WHEN trans_type IN ('دفع','خصم') THEN amount ELSE 0 END), 0) as balance
         FROM person_transactions
         WHERE person_name=%s AND person_type=%s
     """, (name, person_type))

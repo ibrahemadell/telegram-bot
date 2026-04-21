@@ -48,7 +48,7 @@ async def ameel_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         ["➕ إضافة عميل", "🗑️ حذف عميل"],
         ["💸 تسجيل دين", "💰 تسجيل دفع"],
-        ["📊 حساب عميل"]
+        ["✂️ خصم من رصيد", "📊 حساب عميل"]
     ]
     await update.message.reply_text("👥 قائمة العملاء:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
     return MAIN_ACTION
@@ -150,6 +150,15 @@ async def handle_main_action(update: Update, context: ContextTypes.DEFAULT_TYPE)
         keyboard = [[name] for name in names]
         await update.message.reply_text("👤 اختار العميل:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
         return NAME_AMOUNT_TYPE
+    elif choice == "✂️ خصم من رصيد":
+        names = get_all_clients()
+        if not names:
+            await update.message.reply_text("❌ مفيش عملاء", reply_markup=ReplyKeyboardRemove())
+            return ConversationHandler.END
+        context.user_data['action'] = 'ameel_khasem'
+        keyboard = [[name] for name in names]
+        await update.message.reply_text("👤 اختار العميل:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+        return NAME
 
     # ===== الموردين =====
     elif choice == "➕ إضافة مورد":
@@ -480,6 +489,9 @@ async def get_name_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif action == 'ameel_dafa3':
             add_client(name, amount, "دفع")
             await update.message.reply_text(f"✅ تم تسجيل دفع من {name}: {amount} جنيه")
+        elif action == 'ameel_khasem':
+            add_client(name, amount, "خصم")
+            await update.message.reply_text(f"✅ تم خصم {amount} جنيه من رصيد {name}")
         elif action == 'mwrd_dafa3':
             add_supplier(name, amount, "دفع")
             await update.message.reply_text(f"✅ تم تسجيل دفع لـ {name}: {amount} جنيه")
