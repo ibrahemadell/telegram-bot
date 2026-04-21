@@ -1,842 +1,898 @@
-from flask import Flask, jsonify, render_template_string
+from flask import Flask, jsonify, render_template_string, request
 from database import (
     get_balance, get_clients_total, get_suppliers_total,
     get_all_clients, get_all_suppliers, get_person_balance,
-    get_employee_names, get_employee_balance,
-    get_monthly_khazna_report, get_monthly_masrof_report,
-    get_daily_khazna_report, get_weekly_employees_report,
+    get_weekly_employees_report, get_daily_khazna_report,
     get_db
 )
 from datetime import date, timedelta
+from functools import lru_cache
+import time
 import os
 
 app = Flask(__name__)
 
-# ============ HTML Template ============
+# ============ Simple Cache ============
+_cache = {}
+_cache_ttl = {}
+CACHE_SECONDS = 60  # كل دقيقة يتحدث
 
-DASHBOARD_HTML = '''<!DOCTYPE html>
+def cache_get(key):
+    if key in _cache and time.time() - _cache_ttl.get(key, 0) < CACHE_SECONDS:
+        return _cache[key]
+    return None
+
+def cache_set(key, value):
+    _cache[key] = value
+    _cache_ttl[key] = time.time()
+
+def cache_clear():
+    _cache.clear()
+    _cache_ttl.clear()
+
+# ============ DB Helpers ============
+
+def get_khazna_range(date_from, date_to):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        SELECT date, type, amount, description
+        FROM khazna
+        WHERE date >= %s AND date <= %s
+        ORDER BY created_at DESC
+    """, (date_from, date_to))
+    rows = [dict(r) for r in c.fetchall()]
+    conn.close()
+    total_in = sum(r['amount'] for r in rows if r['type'] == 'دخل')
+    total_out = sum(r['amount'] for r in rows if r['type'] == 'صرف')
+    return rows, total_in, total_out
+
+def get_person_transactions_range(name, person_type, date_from, date_to):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        SELECT date, trans_type as type, amount
+        FROM person_transactions
+        WHERE person_name=%s AND person_type=%s
+        AND date >= %s AND date <= %s
+        ORDER BY created_at DESC
+    """, (name, person_type, date_from, date_to))
+    rows = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return rows
+
+def get_masrof_range(date_from, date_to):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        SELECT band, SUM(amount) as total
+        FROM masrof_edari WHERE date >= %s AND date <= %s
+        GROUP BY band
+    """, (date_from, date_to))
+    bands = {r['band']: r['total'] for r in c.fetchall()}
+    c.execute("SELECT SUM(amount) as total FROM masrof_okhra WHERE date >= %s AND date <= %s", (date_from, date_to))
+    row = c.fetchone()
+    okhra = float(row['total']) if row and row['total'] else 0
+    conn.close()
+    return bands, okhra
+
+# ============ HTML ============
+
+DASHBOARD_HTML = r'''<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>لوحة التحكم المالية</title>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;900&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --bg: #0a0e1a;
-    --surface: #111827;
-    --surface2: #1a2235;
-    --border: #1e2d45;
-    --accent: #3b82f6;
-    --accent2: #06b6d4;
-    --green: #10b981;
-    --red: #ef4444;
-    --yellow: #f59e0b;
-    --purple: #8b5cf6;
-    --text: #f1f5f9;
-    --text2: #94a3b8;
-    --text3: #475569;
-  }
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body {
-    font-family: 'Cairo', sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    min-height: 100vh;
-  }
+:root {
+  --bg:#0a0e1a; --surface:#111827; --surface2:#1a2235; --border:#1e2d45;
+  --accent:#3b82f6; --accent2:#06b6d4; --green:#10b981; --red:#ef4444;
+  --yellow:#f59e0b; --purple:#8b5cf6; --orange:#f97316;
+  --text:#f1f5f9; --text2:#94a3b8; --text3:#475569;
+  --sidebar-w: 220px;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
 
-  /* Sidebar */
-  .sidebar {
-    position: fixed; right:0; top:0;
-    width: 240px; height: 100vh;
-    background: var(--surface);
-    border-left: 1px solid var(--border);
-    padding: 24px 0;
-    z-index: 100;
-    display: flex; flex-direction: column;
-  }
-  .logo {
-    padding: 0 24px 24px;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 16px;
-  }
-  .logo h1 { font-size: 18px; font-weight: 900; color: var(--text); }
-  .logo span { font-size: 12px; color: var(--text3); }
-  .nav-item {
-    display: flex; align-items: center; gap: 10px;
-    padding: 11px 24px;
-    cursor: pointer;
-    color: var(--text2);
-    font-size: 14px; font-weight: 600;
-    transition: all 0.2s;
-    border-right: 3px solid transparent;
-  }
-  .nav-item:hover { background: var(--surface2); color: var(--text); }
-  .nav-item.active { color: var(--accent); border-right-color: var(--accent); background: rgba(59,130,246,0.08); }
-  .nav-icon { font-size: 18px; width: 22px; text-align: center; }
+/* ===== Sidebar ===== */
+.sidebar{
+  position:fixed;right:0;top:0;width:var(--sidebar-w);height:100vh;
+  background:var(--surface);border-left:1px solid var(--border);
+  padding:20px 0;z-index:200;display:flex;flex-direction:column;
+  transition:transform 0.3s;
+}
+.logo{padding:0 20px 20px;border-bottom:1px solid var(--border);margin-bottom:12px;}
+.logo h1{font-size:16px;font-weight:900;}
+.logo span{font-size:11px;color:var(--text3);}
+.nav-item{
+  display:flex;align-items:center;gap:10px;padding:10px 20px;
+  cursor:pointer;color:var(--text2);font-size:13px;font-weight:600;
+  transition:all 0.2s;border-right:3px solid transparent;
+}
+.nav-item:hover{background:var(--surface2);color:var(--text);}
+.nav-item.active{color:var(--accent);border-right-color:var(--accent);background:rgba(59,130,246,0.08);}
+.nav-icon{font-size:16px;width:20px;text-align:center;}
+.sidebar-footer{margin-top:auto;padding:16px 20px;border-top:1px solid var(--border);}
+.cache-info{font-size:11px;color:var(--text3);}
 
-  /* Main */
-  .main {
-    margin-right: 240px;
-    padding: 28px 32px;
-    min-height: 100vh;
-  }
-  .page { display: none; }
-  .page.active { display: block; }
+/* Mobile toggle */
+.mobile-toggle{
+  display:none;position:fixed;top:12px;right:12px;z-index:300;
+  background:var(--accent);border:none;color:white;
+  width:40px;height:40px;border-radius:8px;font-size:18px;cursor:pointer;
+}
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:150;}
 
-  /* Header */
-  .page-header {
-    display: flex; justify-content: space-between; align-items: center;
-    margin-bottom: 28px;
-  }
-  .page-title { font-size: 22px; font-weight: 900; }
-  .page-sub { font-size: 13px; color: var(--text3); margin-top: 2px; }
-  .refresh-btn {
-    background: var(--surface2); border: 1px solid var(--border);
-    color: var(--text2); padding: 8px 16px; border-radius: 8px;
-    cursor: pointer; font-family: 'Cairo', sans-serif; font-size: 13px;
-    transition: all 0.2s;
-  }
-  .refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
+/* ===== Main ===== */
+.main{margin-right:var(--sidebar-w);padding:24px 28px;min-height:100vh;}
+.page{display:none;animation:fadeIn 0.3s ease;}
+.page.active{display:block;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 
-  /* Cards */
-  .cards-grid {
-    display: grid; grid-template-columns: repeat(4, 1fr);
-    gap: 16px; margin-bottom: 24px;
-  }
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 20px;
-    position: relative;
-    overflow: hidden;
-    transition: border-color 0.2s;
-  }
-  .card:hover { border-color: var(--accent); }
-  .card::before {
-    content: '';
-    position: absolute; top:0; right:0;
-    width: 3px; height: 100%;
-  }
-  .card.blue::before { background: var(--accent); }
-  .card.green::before { background: var(--green); }
-  .card.red::before { background: var(--red); }
-  .card.yellow::before { background: var(--yellow); }
-  .card.purple::before { background: var(--purple); }
-  .card.cyan::before { background: var(--accent2); }
-  .card-label { font-size: 12px; color: var(--text3); font-weight: 600; margin-bottom: 8px; }
-  .card-value { font-size: 26px; font-weight: 900; margin-bottom: 4px; }
-  .card-value.green { color: var(--green); }
-  .card-value.red { color: var(--red); }
-  .card-value.blue { color: var(--accent); }
-  .card-value.yellow { color: var(--yellow); }
-  .card-value.purple { color: var(--purple); }
-  .card-sub { font-size: 12px; color: var(--text3); }
-  .card-icon {
-    position: absolute; left: 16px; top: 50%;
-    transform: translateY(-50%);
-    font-size: 32px; opacity: 0.1;
-  }
+/* ===== Toolbar ===== */
+.toolbar{
+  display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+  margin-bottom:20px;
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:12px;padding:14px 18px;
+}
+.toolbar-title{font-size:16px;font-weight:900;margin-left:auto;}
+.toolbar-sub{font-size:11px;color:var(--text3);margin-top:2px;}
+.date-input{
+  background:var(--surface2);border:1px solid var(--border);color:var(--text);
+  padding:7px 12px;border-radius:8px;font-family:'Cairo',sans-serif;font-size:12px;
+  cursor:pointer;
+}
+.date-input:focus{outline:none;border-color:var(--accent);}
+.btn{
+  background:var(--surface2);border:1px solid var(--border);color:var(--text2);
+  padding:7px 14px;border-radius:8px;cursor:pointer;
+  font-family:'Cairo',sans-serif;font-size:12px;font-weight:600;
+  transition:all 0.2s;white-space:nowrap;
+}
+.btn:hover{border-color:var(--accent);color:var(--accent);}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:white;}
+.btn.primary:hover{background:#2563eb;}
+.btn-group{display:flex;gap:6px;flex-wrap:wrap;}
+.quick-btn{
+  padding:5px 10px;border-radius:20px;font-size:11px;font-weight:700;
+  background:var(--surface2);border:1px solid var(--border);color:var(--text3);
+  cursor:pointer;transition:all 0.2s;
+}
+.quick-btn:hover,.quick-btn.active{background:var(--accent);border-color:var(--accent);color:white;}
 
-  /* Tables */
-  .section {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    margin-bottom: 20px;
-    overflow: hidden;
-  }
-  .section-header {
-    padding: 16px 20px;
-    border-bottom: 1px solid var(--border);
-    display: flex; justify-content: space-between; align-items: center;
-  }
-  .section-title { font-size: 14px; font-weight: 700; }
-  .section-badge {
-    font-size: 11px; padding: 3px 8px;
-    border-radius: 20px; font-weight: 700;
-  }
-  .badge-blue { background: rgba(59,130,246,0.15); color: var(--accent); }
-  .badge-green { background: rgba(16,185,129,0.15); color: var(--green); }
-  .badge-red { background: rgba(239,68,68,0.15); color: var(--red); }
-  .badge-yellow { background: rgba(245,158,11,0.15); color: var(--yellow); }
+/* Filter bar */
+.filter-bar{
+  display:flex;gap:10px;flex-wrap:wrap;align-items:center;
+  margin-bottom:16px;
+}
+.filter-select{
+  background:var(--surface2);border:1px solid var(--border);color:var(--text);
+  padding:7px 12px;border-radius:8px;font-family:'Cairo',sans-serif;font-size:12px;
+  min-width:150px;
+}
+.filter-select:focus{outline:none;border-color:var(--accent);}
+.filter-label{font-size:12px;color:var(--text3);font-weight:600;}
 
-  table { width: 100%; border-collapse: collapse; }
-  th {
-    padding: 10px 20px; text-align: right;
-    font-size: 11px; font-weight: 700;
-    color: var(--text3); text-transform: uppercase;
-    letter-spacing: 0.05em;
-    background: var(--surface2);
-    border-bottom: 1px solid var(--border);
-  }
-  td {
-    padding: 12px 20px;
-    font-size: 13px;
-    border-bottom: 1px solid rgba(30,45,69,0.5);
-  }
-  tr:last-child td { border-bottom: none; }
-  tr:hover td { background: rgba(59,130,246,0.04); }
+/* ===== Cards ===== */
+.cards-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;}
+.card{
+  background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  padding:18px;position:relative;overflow:hidden;transition:border-color 0.2s,transform 0.2s;
+}
+.card:hover{border-color:var(--accent);transform:translateY(-1px);}
+.card::before{content:'';position:absolute;top:0;right:0;width:3px;height:100%;}
+.card.blue::before{background:var(--accent);}
+.card.green::before{background:var(--green);}
+.card.red::before{background:var(--red);}
+.card.yellow::before{background:var(--yellow);}
+.card.purple::before{background:var(--purple);}
+.card.cyan::before{background:var(--accent2);}
+.card.orange::before{background:var(--orange);}
+.card-label{font-size:11px;color:var(--text3);font-weight:700;margin-bottom:6px;letter-spacing:0.03em;}
+.card-value{font-size:22px;font-weight:900;margin-bottom:3px;}
+.card-value.green{color:var(--green);}
+.card-value.red{color:var(--red);}
+.card-value.blue{color:var(--accent);}
+.card-value.yellow{color:var(--yellow);}
+.card-value.purple{color:var(--purple);}
+.card-value.orange{color:var(--orange);}
+.card-sub{font-size:11px;color:var(--text3);}
+.card-icon{position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:28px;opacity:0.08;}
 
-  .amount-positive { color: var(--green); font-weight: 700; }
-  .amount-negative { color: var(--red); font-weight: 700; }
-  .amount-neutral { color: var(--text2); }
+/* ===== Sections ===== */
+.sections-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
+.section{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px;}
+.section-header{
+  padding:14px 18px;border-bottom:1px solid var(--border);
+  display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;
+}
+.section-title{font-size:13px;font-weight:700;}
+.badge{font-size:11px;padding:3px 8px;border-radius:20px;font-weight:700;}
+.badge-blue{background:rgba(59,130,246,0.15);color:var(--accent);}
+.badge-green{background:rgba(16,185,129,0.15);color:var(--green);}
+.badge-red{background:rgba(239,68,68,0.15);color:var(--red);}
+.badge-yellow{background:rgba(245,158,11,0.15);color:var(--yellow);}
 
-  .status-badge {
-    display: inline-block;
-    padding: 3px 8px; border-radius: 20px;
-    font-size: 11px; font-weight: 700;
-  }
-  .status-debt { background: rgba(239,68,68,0.15); color: var(--red); }
-  .status-credit { background: rgba(16,185,129,0.15); color: var(--green); }
-  .status-zero { background: rgba(148,163,184,0.15); color: var(--text3); }
+/* ===== Table ===== */
+.table-wrap{overflow-x:auto;}
+table{width:100%;border-collapse:collapse;min-width:400px;}
+th{
+  padding:9px 18px;text-align:right;font-size:11px;font-weight:700;
+  color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;
+  background:var(--surface2);border-bottom:1px solid var(--border);white-space:nowrap;
+}
+td{padding:11px 18px;font-size:13px;border-bottom:1px solid rgba(30,45,69,0.5);}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:rgba(59,130,246,0.04);}
+.amt-pos{color:var(--green);font-weight:700;}
+.amt-neg{color:var(--red);font-weight:700;}
+.amt-neu{color:var(--text2);}
+.tag{display:inline-block;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:700;}
+.tag-debt{background:rgba(239,68,68,0.15);color:var(--red);}
+.tag-credit{background:rgba(16,185,129,0.15);color:var(--green);}
+.tag-zero{background:rgba(148,163,184,0.1);color:var(--text3);}
+.tag-in{background:rgba(16,185,129,0.15);color:var(--green);}
+.tag-out{background:rgba(239,68,68,0.15);color:var(--red);}
 
-  /* Two column */
-  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+/* ===== Bar chart ===== */
+.bar-chart{padding:14px 18px;}
+.bar-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.bar-label{font-size:12px;color:var(--text2);width:110px;flex-shrink:0;text-align:right;}
+.bar-track{flex:1;height:8px;background:var(--surface2);border-radius:4px;overflow:hidden;}
+.bar-fill{height:100%;border-radius:4px;transition:width 0.8s cubic-bezier(0.4,0,0.2,1);}
+.bar-fill.green{background:linear-gradient(90deg,var(--green),#34d399);}
+.bar-fill.red{background:linear-gradient(90deg,var(--red),#f87171);}
+.bar-fill.blue{background:linear-gradient(90deg,var(--accent),var(--accent2));}
+.bar-fill.yellow{background:linear-gradient(90deg,var(--yellow),#fcd34d);}
+.bar-fill.purple{background:linear-gradient(90deg,var(--purple),#a78bfa);}
+.bar-fill.orange{background:linear-gradient(90deg,var(--orange),#fb923c);}
+.bar-amount{font-size:12px;color:var(--text2);width:90px;flex-shrink:0;}
 
-  /* Chart bars */
-  .bar-chart { padding: 16px 20px; }
-  .bar-row {
-    display: flex; align-items: center; gap: 12px;
-    margin-bottom: 10px;
-  }
-  .bar-label { font-size: 12px; color: var(--text2); width: 100px; text-align: right; flex-shrink:0; }
-  .bar-track {
-    flex: 1; height: 8px;
-    background: var(--surface2); border-radius: 4px;
-    overflow: hidden;
-  }
-  .bar-fill {
-    height: 100%; border-radius: 4px;
-    transition: width 1s ease;
-  }
-  .bar-fill.green { background: linear-gradient(90deg, var(--green), #34d399); }
-  .bar-fill.red { background: linear-gradient(90deg, var(--red), #f87171); }
-  .bar-fill.blue { background: linear-gradient(90deg, var(--accent), var(--accent2)); }
-  .bar-fill.yellow { background: linear-gradient(90deg, var(--yellow), #fcd34d); }
-  .bar-fill.purple { background: linear-gradient(90deg, var(--purple), #a78bfa); }
-  .bar-amount { font-size: 12px; color: var(--text2); width: 90px; flex-shrink:0; }
+/* ===== Day selector ===== */
+.day-selector{display:flex;gap:8px;flex-wrap:wrap;padding:14px 18px;border-bottom:1px solid var(--border);}
+.day-btn{
+  padding:6px 12px;border-radius:20px;background:var(--surface2);
+  border:1px solid var(--border);color:var(--text2);
+  font-family:'Cairo',sans-serif;font-size:12px;cursor:pointer;transition:all 0.2s;
+  text-align:center;line-height:1.4;
+}
+.day-btn:hover,.day-btn.active{background:var(--accent);border-color:var(--accent);color:white;}
+.day-btn small{display:block;font-size:10px;opacity:0.8;}
 
-  /* Loading */
-  .loading {
-    text-align: center; padding: 40px;
-    color: var(--text3); font-size: 14px;
-  }
-  .loading::after {
-    content: ''; display: inline-block;
-    width: 16px; height: 16px;
-    border: 2px solid var(--border);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-    margin-right: 8px; vertical-align: middle;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
+/* ===== Summary mini ===== */
+.summary-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:14px 18px;border-bottom:1px solid var(--border);}
+.summary-item{text-align:center;}
+.summary-label{font-size:11px;color:var(--text3);margin-bottom:4px;}
+.summary-val{font-size:18px;font-weight:900;}
 
-  /* Day selector */
-  .day-selector {
-    display: flex; gap: 8px; flex-wrap: wrap;
-    padding: 16px 20px;
-    border-bottom: 1px solid var(--border);
-  }
-  .day-btn {
-    padding: 6px 14px; border-radius: 20px;
-    background: var(--surface2); border: 1px solid var(--border);
-    color: var(--text2); font-family: 'Cairo', sans-serif;
-    font-size: 12px; cursor: pointer; transition: all 0.2s;
-  }
-  .day-btn:hover, .day-btn.active {
-    background: var(--accent); border-color: var(--accent);
-    color: white;
-  }
+/* ===== Loading / Empty ===== */
+.loading{text-align:center;padding:36px;color:var(--text3);font-size:13px;}
+.spinner{
+  display:inline-block;width:16px;height:16px;
+  border:2px solid var(--border);border-top-color:var(--accent);
+  border-radius:50%;animation:spin 0.8s linear infinite;
+  margin-left:8px;vertical-align:middle;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty{text-align:center;padding:32px;color:var(--text3);font-size:13px;}
+.skeleton{background:linear-gradient(90deg,var(--surface2) 25%,var(--border) 50%,var(--surface2) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:6px;height:16px;margin:6px 0;}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
 
-  /* Empty state */
-  .empty {
-    text-align: center; padding: 32px;
-    color: var(--text3); font-size: 13px;
-  }
+/* ===== Scrollbar ===== */
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:var(--surface);}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
 
-  /* Scrollbar */
-  ::-webkit-scrollbar { width: 6px; }
-  ::-webkit-scrollbar-track { background: var(--surface); }
-  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-
-  @media (max-width: 1200px) { .cards-grid { grid-template-columns: repeat(2, 1fr); } }
-  @media (max-width: 900px) { .two-col, .three-col { grid-template-columns: 1fr; } }
+/* ===== Responsive ===== */
+@media(max-width:1200px){.cards-grid{grid-template-columns:repeat(3,1fr);}}
+@media(max-width:900px){
+  .cards-grid{grid-template-columns:repeat(2,1fr);}
+  .sections-row{grid-template-columns:1fr;}
+}
+@media(max-width:768px){
+  .sidebar{transform:translateX(100%);width:260px;}
+  .sidebar.open{transform:translateX(0);}
+  .mobile-toggle{display:flex;align-items:center;justify-content:center;}
+  .overlay.show{display:block;}
+  .main{margin-right:0;padding:16px;padding-top:60px;}
+  .cards-grid{grid-template-columns:repeat(2,1fr);gap:10px;}
+  .card{padding:14px;}
+  .card-value{font-size:18px;}
+  .toolbar{padding:10px 14px;}
+  th,td{padding:8px 12px;}
+}
+@media(max-width:480px){
+  .cards-grid{grid-template-columns:1fr 1fr;}
+  .card-icon{display:none;}
+}
 </style>
 </head>
 <body>
 
-<!-- Sidebar -->
-<aside class="sidebar">
+<button class="mobile-toggle" onclick="toggleSidebar()">☰</button>
+<div class="overlay" id="overlay" onclick="toggleSidebar()"></div>
+
+<aside class="sidebar" id="sidebar">
   <div class="logo">
     <h1>💼 المالية</h1>
-    <span>لوحة التحكم</span>
+    <span id="last-update">لوحة التحكم</span>
   </div>
   <nav>
-    <div class="nav-item active" onclick="showPage('overview')">
-      <span class="nav-icon">📊</span> نظرة عامة
-    </div>
-    <div class="nav-item" onclick="showPage('clients')">
-      <span class="nav-icon">👥</span> العملاء
-    </div>
-    <div class="nav-item" onclick="showPage('suppliers')">
-      <span class="nav-icon">🏭</span> الموردين
-    </div>
-    <div class="nav-item" onclick="showPage('employees')">
-      <span class="nav-icon">👷</span> الموظفين
-    </div>
-    <div class="nav-item" onclick="showPage('expenses')">
-      <span class="nav-icon">📋</span> المصروفات
-    </div>
-    <div class="nav-item" onclick="showPage('daily')">
-      <span class="nav-icon">📅</span> التقرير اليومي
-    </div>
+    <div class="nav-item active" onclick="showPage('overview',this)"><span class="nav-icon">📊</span>نظرة عامة</div>
+    <div class="nav-item" onclick="showPage('clients',this)"><span class="nav-icon">👥</span>العملاء</div>
+    <div class="nav-item" onclick="showPage('suppliers',this)"><span class="nav-icon">🏭</span>الموردين</div>
+    <div class="nav-item" onclick="showPage('employees',this)"><span class="nav-icon">👷</span>الموظفين</div>
+    <div class="nav-item" onclick="showPage('expenses',this)"><span class="nav-icon">📋</span>المصروفات</div>
+    <div class="nav-item" onclick="showPage('daily',this)"><span class="nav-icon">📅</span>التقرير اليومي</div>
   </nav>
+  <div class="sidebar-footer">
+    <div class="cache-info" id="cache-info">⚡ Cache: 60 ثانية</div>
+    <button class="btn primary" style="width:100%;margin-top:8px;" onclick="refreshAll()">🔄 تحديث الكل</button>
+  </div>
 </aside>
 
-<!-- Main Content -->
 <main class="main">
 
-  <!-- ===== نظرة عامة ===== -->
-  <div class="page active" id="page-overview">
-    <div class="page-header">
-      <div>
-        <div class="page-title">نظرة عامة</div>
-        <div class="page-sub" id="today-date"></div>
-      </div>
-      <button class="refresh-btn" onclick="loadAll()">🔄 تحديث</button>
+<!-- ===== نظرة عامة ===== -->
+<div class="page active" id="page-overview">
+  <div class="toolbar">
+    <div>
+      <div class="toolbar-title">📊 نظرة عامة</div>
+      <div class="toolbar-sub" id="overview-period"></div>
     </div>
-
-    <div class="cards-grid" id="overview-cards">
-      <div class="loading">جاري التحميل</div>
+    <div class="btn-group">
+      <span class="quick-btn active" onclick="setQuick('overview',7,this)">7 أيام</span>
+      <span class="quick-btn" onclick="setQuick('overview',30,this)">30 يوم</span>
+      <span class="quick-btn" onclick="setQuick('overview',90,this)">3 أشهر</span>
     </div>
-
-    <div class="two-col">
-      <div class="section">
-        <div class="section-header">
-          <span class="section-title">📈 دخل وصرف الشهر</span>
-          <span class="section-badge badge-blue" id="month-label"></span>
-        </div>
-        <div class="bar-chart" id="monthly-chart">
-          <div class="loading">جاري التحميل</div>
-        </div>
-      </div>
-
-      <div class="section">
-        <div class="section-header">
-          <span class="section-title">⚡ آخر حركات اليوم</span>
-          <span class="section-badge badge-green" id="today-count"></span>
-        </div>
-        <div id="today-transactions">
-          <div class="loading">جاري التحميل</div>
-        </div>
-      </div>
-    </div>
+    <input type="date" class="date-input" id="ov-from">
+    <input type="date" class="date-input" id="ov-to">
+    <button class="btn primary" onclick="loadOverview()">بحث</button>
   </div>
-
-  <!-- ===== العملاء ===== -->
-  <div class="page" id="page-clients">
-    <div class="page-header">
-      <div>
-        <div class="page-title">العملاء</div>
-        <div class="page-sub">أرصدة وحركات العملاء</div>
-      </div>
+  <div class="cards-grid" id="overview-cards"><div class="loading"><span class="spinner"></span> جاري التحميل</div></div>
+  <div class="sections-row">
+    <div class="section">
+      <div class="section-header"><span class="section-title">📈 دخل وصرف</span><span class="badge badge-blue" id="ov-month"></span></div>
+      <div class="bar-chart" id="ov-chart"><div class="loading"><span class="spinner"></span></div></div>
     </div>
     <div class="section">
-      <div class="section-header">
-        <span class="section-title">👥 كل العملاء</span>
-        <span class="section-badge badge-blue" id="clients-total-badge"></span>
-      </div>
-      <div id="clients-table"><div class="loading">جاري التحميل</div></div>
+      <div class="section-header"><span class="section-title">⚡ آخر الحركات</span><span class="badge badge-green" id="ov-txcount"></span></div>
+      <div class="table-wrap" id="ov-recent"><div class="loading"><span class="spinner"></span></div></div>
     </div>
   </div>
+</div>
 
-  <!-- ===== الموردين ===== -->
-  <div class="page" id="page-suppliers">
-    <div class="page-header">
-      <div>
-        <div class="page-title">الموردين</div>
-        <div class="page-sub">المديونيات والمدفوعات</div>
-      </div>
+<!-- ===== العملاء ===== -->
+<div class="page" id="page-clients">
+  <div class="toolbar">
+    <div><div class="toolbar-title">👥 العملاء</div></div>
+    <div class="btn-group">
+      <span class="quick-btn active" onclick="setQuick('clients',30,this)">30 يوم</span>
+      <span class="quick-btn" onclick="setQuick('clients',90,this)">3 أشهر</span>
+      <span class="quick-btn" onclick="setQuick('clients',365,this)">سنة</span>
+      <span class="quick-btn" onclick="setQuick('clients',3650,this)">الكل</span>
+    </div>
+    <input type="date" class="date-input" id="cl-from">
+    <input type="date" class="date-input" id="cl-to">
+    <button class="btn primary" onclick="loadClients()">بحث</button>
+  </div>
+  <div class="filter-bar">
+    <span class="filter-label">فلتر:</span>
+    <select class="filter-select" id="client-filter" onchange="filterClientsTable()">
+      <option value="all">كل العملاء</option>
+      <option value="debt">عليهم فلوس</option>
+      <option value="credit">ليهم فلوس</option>
+      <option value="zero">صفر</option>
+    </select>
+    <input type="text" class="date-input" id="client-search" placeholder="🔍 بحث باسم..." oninput="filterClientsTable()" style="min-width:160px;">
+  </div>
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">قائمة العملاء</span>
+      <span class="badge badge-blue" id="clients-badge"></span>
+    </div>
+    <div class="table-wrap" id="clients-table"><div class="loading"><span class="spinner"></span></div></div>
+  </div>
+</div>
+
+<!-- ===== الموردين ===== -->
+<div class="page" id="page-suppliers">
+  <div class="toolbar">
+    <div><div class="toolbar-title">🏭 الموردين</div></div>
+    <div class="btn-group">
+      <span class="quick-btn active" onclick="setQuick('suppliers',30,this)">30 يوم</span>
+      <span class="quick-btn" onclick="setQuick('suppliers',90,this)">3 أشهر</span>
+      <span class="quick-btn" onclick="setQuick('suppliers',365,this)">سنة</span>
+      <span class="quick-btn" onclick="setQuick('suppliers',3650,this)">الكل</span>
+    </div>
+    <input type="date" class="date-input" id="sp-from">
+    <input type="date" class="date-input" id="sp-to">
+    <button class="btn primary" onclick="loadSuppliers()">بحث</button>
+  </div>
+  <div class="filter-bar">
+    <span class="filter-label">فلتر:</span>
+    <select class="filter-select" id="supplier-filter" onchange="filterSuppliersTable()">
+      <option value="all">كل الموردين</option>
+      <option value="debt">ليهم علينا</option>
+      <option value="zero">صفر</option>
+    </select>
+    <input type="text" class="date-input" id="supplier-search" placeholder="🔍 بحث باسم..." oninput="filterSuppliersTable()" style="min-width:160px;">
+  </div>
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">قائمة الموردين</span>
+      <span class="badge badge-red" id="suppliers-badge"></span>
+    </div>
+    <div class="table-wrap" id="suppliers-table"><div class="loading"><span class="spinner"></span></div></div>
+  </div>
+</div>
+
+<!-- ===== الموظفين ===== -->
+<div class="page" id="page-employees">
+  <div class="toolbar">
+    <div><div class="toolbar-title">👷 الموظفين</div></div>
+    <input type="text" class="date-input" id="emp-search" placeholder="🔍 بحث باسم..." oninput="filterEmpTable()" style="min-width:160px;">
+  </div>
+  <div class="section">
+    <div class="section-header"><span class="section-title">تقرير المرتبات الأسبوعي</span><span class="badge badge-yellow" id="emp-badge"></span></div>
+    <div class="table-wrap" id="emp-table"><div class="loading"><span class="spinner"></span></div></div>
+  </div>
+</div>
+
+<!-- ===== المصروفات ===== -->
+<div class="page" id="page-expenses">
+  <div class="toolbar">
+    <div><div class="toolbar-title">📋 المصروفات</div></div>
+    <div class="btn-group">
+      <span class="quick-btn active" onclick="setQuick('expenses',30,this)">30 يوم</span>
+      <span class="quick-btn" onclick="setQuick('expenses',90,this)">3 أشهر</span>
+      <span class="quick-btn" onclick="setQuick('expenses',365,this)">سنة</span>
+    </div>
+    <input type="date" class="date-input" id="ex-from">
+    <input type="date" class="date-input" id="ex-to">
+    <button class="btn primary" onclick="loadExpenses()">بحث</button>
+  </div>
+  <div class="sections-row">
+    <div class="section">
+      <div class="section-header"><span class="section-title">📌 البنود الإدارية</span></div>
+      <div class="bar-chart" id="ex-bands"><div class="loading"><span class="spinner"></span></div></div>
     </div>
     <div class="section">
-      <div class="section-header">
-        <span class="section-title">🏭 كل الموردين</span>
-        <span class="section-badge badge-red" id="suppliers-total-badge"></span>
-      </div>
-      <div id="suppliers-table"><div class="loading">جاري التحميل</div></div>
+      <div class="section-header"><span class="section-title">📊 ملخص</span></div>
+      <div id="ex-summary"><div class="loading"><span class="spinner"></span></div></div>
     </div>
   </div>
+</div>
 
-  <!-- ===== الموظفين ===== -->
-  <div class="page" id="page-employees">
-    <div class="page-header">
-      <div>
-        <div class="page-title">الموظفين</div>
-        <div class="page-sub">المرتبات والصافي المستحق</div>
-      </div>
-    </div>
-    <div class="section">
-      <div class="section-header">
-        <span class="section-title">👷 تقرير الموظفين الأسبوعي</span>
-      </div>
-      <div id="employees-table"><div class="loading">جاري التحميل</div></div>
-    </div>
+<!-- ===== التقرير اليومي ===== -->
+<div class="page" id="page-daily">
+  <div class="toolbar">
+    <div><div class="toolbar-title">📅 التقرير اليومي</div></div>
+    <input type="date" class="date-input" id="daily-custom" onchange="loadDailyCustom()">
   </div>
-
-  <!-- ===== المصروفات ===== -->
-  <div class="page" id="page-expenses">
-    <div class="page-header">
-      <div>
-        <div class="page-title">المصروفات</div>
-        <div class="page-sub">تقرير المصروفات الشهري</div>
-      </div>
-    </div>
-    <div class="two-col">
-      <div class="section">
-        <div class="section-header">
-          <span class="section-title">📌 المصروفات الإدارية</span>
-        </div>
-        <div class="bar-chart" id="expenses-bands-chart">
-          <div class="loading">جاري التحميل</div>
-        </div>
-      </div>
-      <div class="section">
-        <div class="section-header">
-          <span class="section-title">📊 ملخص المصروفات</span>
-        </div>
-        <div id="expenses-summary"><div class="loading">جاري التحميل</div></div>
-      </div>
-    </div>
+  <div class="section">
+    <div class="day-selector" id="day-selector"></div>
+    <div id="daily-content"><div class="empty">اختار يوم</div></div>
   </div>
-
-  <!-- ===== التقرير اليومي ===== -->
-  <div class="page" id="page-daily">
-    <div class="page-header">
-      <div>
-        <div class="page-title">التقرير اليومي</div>
-        <div class="page-sub">حركات الخزنة اليومية</div>
-      </div>
-    </div>
-    <div class="section">
-      <div class="day-selector" id="day-selector"></div>
-      <div id="daily-content"><div class="empty">اختار يوم لعرض التقرير</div></div>
-    </div>
-  </div>
+</div>
 
 </main>
 
 <script>
-const DAYS_AR = ['السبت','الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة'];
+// ===== Globals =====
+let clientsData = [], suppliersData = [], empData = [];
+const fmt = n => Number(n).toLocaleString('ar-EG',{maximumFractionDigits:1}) + ' ج';
+const today = () => new Date().toISOString().split('T')[0];
+const daysAgo = d => { const dt = new Date(); dt.setDate(dt.getDate()-d); return dt.toISOString().split('T')[0]; };
+const COLORS = ['blue','green','yellow','purple','orange','red','cyan'];
 
-function showPage(name) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  document.getElementById('page-' + name).classList.add('active');
-  event.currentTarget.classList.add('active');
-  loadPage(name);
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('overlay').classList.toggle('show');
 }
 
-async function api(endpoint) {
-  const res = await fetch('/api/' + endpoint);
+function showPage(name, el) {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.getElementById('page-'+name).classList.add('active');
+  if(el) el.classList.add('active');
+  // Close mobile sidebar
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('overlay').classList.remove('show');
+  if(name==='overview') loadOverview();
+  else if(name==='clients') loadClients();
+  else if(name==='suppliers') loadSuppliers();
+  else if(name==='employees') loadEmployees();
+  else if(name==='expenses') loadExpenses();
+  else if(name==='daily') initDaily();
+}
+
+function setQuick(page, days, el) {
+  el.closest('.btn-group').querySelectorAll('.quick-btn').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  const from = daysAgo(days), to = today();
+  if(page==='overview'){ document.getElementById('ov-from').value=from; document.getElementById('ov-to').value=to; loadOverview(); }
+  else if(page==='clients'){ document.getElementById('cl-from').value=from; document.getElementById('cl-to').value=to; loadClients(); }
+  else if(page==='suppliers'){ document.getElementById('sp-from').value=from; document.getElementById('sp-to').value=to; loadSuppliers(); }
+  else if(page==='expenses'){ document.getElementById('ex-from').value=from; document.getElementById('ex-to').value=to; loadExpenses(); }
+}
+
+async function api(url) {
+  const res = await fetch('/api/'+url);
   return res.json();
 }
 
-function fmt(n) {
-  return Number(n).toLocaleString('ar-EG', {maximumFractionDigits:1}) + ' ج';
+function refreshAll() {
+  fetch('/api/cache/clear').then(()=>{
+    const activePage = document.querySelector('.page.active').id.replace('page-','');
+    showPage(activePage, null);
+    document.getElementById('cache-info').textContent = '🔄 تم التحديث';
+    setTimeout(()=>document.getElementById('cache-info').textContent='⚡ Cache: 60 ثانية', 2000);
+  });
 }
 
 // ===== Overview =====
 async function loadOverview() {
-  const today = new Date();
-  document.getElementById('today-date').textContent =
-    today.toLocaleDateString('ar-EG', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
-  document.getElementById('month-label').textContent =
-    today.toLocaleDateString('ar-EG', {year:'numeric', month:'long'});
+  const from = document.getElementById('ov-from').value || daysAgo(7);
+  const to = document.getElementById('ov-to').value || today();
+  document.getElementById('ov-from').value = from;
+  document.getElementById('ov-to').value = to;
+  document.getElementById('overview-period').textContent = `من ${from} إلى ${to}`;
+  document.getElementById('ov-month').textContent = `${from} → ${to}`;
+  document.getElementById('overview-cards').innerHTML = skeletonCards(8);
 
-  const data = await api('overview');
+  const [ov, daily] = await Promise.all([
+    api(`overview?from=${from}&to=${to}`),
+    api(`daily/${today()}`)
+  ]);
 
-  // Cards
-  const balanceColor = data.balance >= 0 ? 'green' : 'red';
+  const bc = ov.balance >= 0 ? 'green':'red';
+  const nc = ov.net >= 0 ? 'green':'red';
   document.getElementById('overview-cards').innerHTML = `
-    <div class="card ${balanceColor}">
-      <div class="card-label">رصيد الخزنة</div>
-      <div class="card-value ${balanceColor}">${fmt(data.balance)}</div>
-      <div class="card-sub">الرصيد الكلي</div>
-      <span class="card-icon">🏦</span>
-    </div>
-    <div class="card blue">
-      <div class="card-label">دخل الشهر</div>
-      <div class="card-value blue">${fmt(data.month_in)}</div>
-      <div class="card-sub">إجمالي الواردات</div>
-      <span class="card-icon">📈</span>
-    </div>
-    <div class="card red">
-      <div class="card-label">صرف الشهر</div>
-      <div class="card-value red">${fmt(data.month_out)}</div>
-      <div class="card-sub">إجمالي المصروفات</div>
-      <span class="card-icon">📉</span>
-    </div>
-    <div class="card yellow">
-      <div class="card-label">مديونيات الموردين</div>
-      <div class="card-value yellow">${fmt(data.suppliers_debt)}</div>
-      <div class="card-sub">إجمالي ما علينا</div>
-      <span class="card-icon">🏭</span>
-    </div>
-    <div class="card green">
-      <div class="card-label">فلوس العملاء</div>
-      <div class="card-value green">${fmt(data.clients_credit)}</div>
-      <div class="card-sub">إجمالي ما لنا</div>
-      <span class="card-icon">👥</span>
-    </div>
-    <div class="card purple">
-      <div class="card-label">مرتبات مستحقة</div>
-      <div class="card-value purple">${fmt(data.salary_due)}</div>
-      <div class="card-sub">إجمالي الموظفين</div>
-      <span class="card-icon">👷</span>
-    </div>
-    <div class="card cyan">
-      <div class="card-label">صافي الشهر</div>
-      <div class="card-value ${data.month_net >= 0 ? 'green':'red'}">${fmt(data.month_net)}</div>
-      <div class="card-sub">${data.month_net >= 0 ? 'ربح' : 'خسارة'}</div>
-      <span class="card-icon">💹</span>
-    </div>
-    <div class="card blue">
-      <div class="card-label">حركات اليوم</div>
-      <div class="card-value blue">${data.today_count}</div>
-      <div class="card-sub">عدد المعاملات</div>
-      <span class="card-icon">⚡</span>
-    </div>
+    <div class="card ${bc}"><div class="card-label">رصيد الخزنة الكلي</div><div class="card-value ${bc}">${fmt(ov.balance)}</div><div class="card-sub">الرصيد الإجمالي</div><span class="card-icon">🏦</span></div>
+    <div class="card blue"><div class="card-label">دخل الفترة</div><div class="card-value blue">${fmt(ov.period_in)}</div><div class="card-sub">${from} → ${to}</div><span class="card-icon">📈</span></div>
+    <div class="card red"><div class="card-label">صرف الفترة</div><div class="card-value red">${fmt(ov.period_out)}</div><div class="card-sub">إجمالي المصروفات</div><span class="card-icon">📉</span></div>
+    <div class="card ${nc}"><div class="card-label">صافي الفترة</div><div class="card-value ${nc}">${fmt(ov.net)}</div><div class="card-sub">${ov.net>=0?'ربح':'خسارة'}</div><span class="card-icon">💹</span></div>
+    <div class="card yellow"><div class="card-label">مديونيات الموردين</div><div class="card-value yellow">${fmt(ov.suppliers_debt)}</div><div class="card-sub">إجمالي ما علينا</div><span class="card-icon">🏭</span></div>
+    <div class="card green"><div class="card-label">فلوس العملاء</div><div class="card-value green">${fmt(ov.clients_credit)}</div><div class="card-sub">إجمالي ما لنا</div><span class="card-icon">👥</span></div>
+    <div class="card purple"><div class="card-label">مرتبات مستحقة</div><div class="card-value purple">${fmt(ov.salary_due)}</div><div class="card-sub">إجمالي الموظفين</div><span class="card-icon">👷</span></div>
+    <div class="card cyan"><div class="card-label">حركات اليوم</div><div class="card-value blue">${daily.records.length}</div><div class="card-sub">إجمالي ${fmt(daily.total_in)} دخل</div><span class="card-icon">⚡</span></div>
   `;
 
-  // Monthly chart
-  const maxVal = Math.max(data.month_in, data.month_out, 1);
-  document.getElementById('monthly-chart').innerHTML = `
-    <div class="bar-row">
-      <span class="bar-label">الدخل</span>
-      <div class="bar-track"><div class="bar-fill green" style="width:${(data.month_in/maxVal)*100}%"></div></div>
-      <span class="bar-amount">${fmt(data.month_in)}</span>
-    </div>
-    <div class="bar-row">
-      <span class="bar-label">الصرف</span>
-      <div class="bar-track"><div class="bar-fill red" style="width:${(data.month_out/maxVal)*100}%"></div></div>
-      <span class="bar-amount">${fmt(data.month_out)}</span>
-    </div>
-    <div class="bar-row">
-      <span class="bar-label">الصافي</span>
-      <div class="bar-track"><div class="bar-fill ${data.month_net>=0?'blue':'red'}" style="width:${Math.min(Math.abs(data.month_net)/maxVal*100,100)}%"></div></div>
-      <span class="bar-amount">${fmt(data.month_net)}</span>
-    </div>
+  const maxV = Math.max(ov.period_in, ov.period_out, 1);
+  document.getElementById('ov-chart').innerHTML = `
+    <div class="bar-row"><span class="bar-label">الدخل</span><div class="bar-track"><div class="bar-fill green" style="width:${(ov.period_in/maxV)*100}%"></div></div><span class="bar-amount">${fmt(ov.period_in)}</span></div>
+    <div class="bar-row"><span class="bar-label">الصرف</span><div class="bar-track"><div class="bar-fill red" style="width:${(ov.period_out/maxV)*100}%"></div></div><span class="bar-amount">${fmt(ov.period_out)}</span></div>
+    <div class="bar-row"><span class="bar-label">الصافي</span><div class="bar-track"><div class="bar-fill ${ov.net>=0?'blue':'red'}" style="width:${Math.min(Math.abs(ov.net)/maxV*100,100)}%"></div></div><span class="bar-amount">${fmt(ov.net)}</span></div>
   `;
 
-  // Today transactions
-  document.getElementById('today-count').textContent = data.today_count + ' حركة';
-  if (data.today_records.length === 0) {
-    document.getElementById('today-transactions').innerHTML = '<div class="empty">مفيش حركات النهارده</div>';
+  document.getElementById('ov-txcount').textContent = daily.records.length + ' حركة';
+  if (!daily.records.length) {
+    document.getElementById('ov-recent').innerHTML = '<div class="empty">مفيش حركات اليوم</div>';
   } else {
-    let html = '<table><thead><tr><th>النوع</th><th>المبلغ</th><th>الوصف</th></tr></thead><tbody>';
-    data.today_records.forEach(r => {
-      const cls = r.type === 'دخل' ? 'amount-positive' : 'amount-negative';
-      const icon = r.type === 'دخل' ? '💚' : '🔴';
-      html += `<tr><td>${icon} ${r.type}</td><td class="${cls}">${fmt(r.amount)}</td><td>${r.description||'-'}</td></tr>`;
+    let h = '<table><thead><tr><th>النوع</th><th>المبلغ</th><th>الوصف</th></tr></thead><tbody>';
+    daily.records.slice(0,8).forEach(r => {
+      h += `<tr><td><span class="tag ${r.type==='دخل'?'tag-in':'tag-out'}">${r.type}</span></td><td class="${r.type==='دخل'?'amt-pos':'amt-neg'}">${fmt(r.amount)}</td><td>${r.description||'-'}</td></tr>`;
     });
-    html += '</tbody></table>';
-    document.getElementById('today-transactions').innerHTML = html;
+    h += '</tbody></table>';
+    document.getElementById('ov-recent').innerHTML = h;
   }
 }
 
 // ===== Clients =====
 async function loadClients() {
-  const data = await api('clients');
-  let total_debt = 0;
-  if (data.length === 0) {
-    document.getElementById('clients-table').innerHTML = '<div class="empty">مفيش عملاء</div>';
-    return;
-  }
-  let html = '<table><thead><tr><th>العميل</th><th>الحالة</th><th>المبلغ</th></tr></thead><tbody>';
+  const from = document.getElementById('cl-from').value || daysAgo(3650);
+  const to = document.getElementById('cl-to').value || today();
+  document.getElementById('cl-from').value = from;
+  document.getElementById('cl-to').value = to;
+  document.getElementById('clients-table').innerHTML = '<div class="loading"><span class="spinner"></span></div>';
+  const data = await api(`clients?from=${from}&to=${to}`);
+  clientsData = data;
+  renderClientsTable(data);
+}
+
+function renderClientsTable(data) {
+  if (!data.length) { document.getElementById('clients-table').innerHTML = '<div class="empty">مفيش عملاء</div>'; return; }
+  let totalDebt = 0;
+  let h = '<table><thead><tr><th>العميل</th><th>الحالة</th><th>الرصيد</th></tr></thead><tbody>';
   data.forEach(c => {
-    let statusClass, statusText;
-    if (c.balance > 0) { statusClass='status-debt'; statusText='عليه'; total_debt+=c.balance; }
-    else if (c.balance < 0) { statusClass='status-credit'; statusText='ليه عندنا'; }
-    else { statusClass='status-zero'; statusText='صفر'; }
-    const amtClass = c.balance > 0 ? 'amount-negative' : c.balance < 0 ? 'amount-positive' : 'amount-neutral';
-    html += `<tr><td>${c.name}</td><td><span class="status-badge ${statusClass}">${statusText}</span></td><td class="${amtClass}">${fmt(Math.abs(c.balance))}</td></tr>`;
+    let cls, txt;
+    if(c.balance>0){cls='tag-debt';txt='عليه';totalDebt+=c.balance;}
+    else if(c.balance<0){cls='tag-credit';txt='ليه عندنا';}
+    else{cls='tag-zero';txt='صفر';}
+    const ac = c.balance>0?'amt-neg':c.balance<0?'amt-pos':'amt-neu';
+    h += `<tr><td><strong>${c.name}</strong></td><td><span class="tag ${cls}">${txt}</span></td><td class="${ac}">${fmt(Math.abs(c.balance))}</td></tr>`;
   });
-  html += '</tbody></table>';
-  document.getElementById('clients-table').innerHTML = html;
-  document.getElementById('clients-total-badge').textContent = `إجمالي الديون: ${fmt(total_debt)}`;
+  h += '</tbody></table>';
+  document.getElementById('clients-table').innerHTML = h;
+  document.getElementById('clients-badge').textContent = `${data.length} عميل | ديون: ${fmt(totalDebt)}`;
+}
+
+function filterClientsTable() {
+  const filter = document.getElementById('client-filter').value;
+  const search = document.getElementById('client-search').value.toLowerCase();
+  let filtered = clientsData.filter(c => {
+    if(search && !c.name.toLowerCase().includes(search)) return false;
+    if(filter==='debt') return c.balance>0;
+    if(filter==='credit') return c.balance<0;
+    if(filter==='zero') return c.balance===0;
+    return true;
+  });
+  renderClientsTable(filtered);
 }
 
 // ===== Suppliers =====
 async function loadSuppliers() {
-  const data = await api('suppliers');
+  const from = document.getElementById('sp-from').value || daysAgo(3650);
+  const to = document.getElementById('sp-to').value || today();
+  document.getElementById('sp-from').value = from;
+  document.getElementById('sp-to').value = to;
+  document.getElementById('suppliers-table').innerHTML = '<div class="loading"><span class="spinner"></span></div>';
+  const data = await api(`suppliers?from=${from}&to=${to}`);
+  suppliersData = data;
+  renderSuppliersTable(data);
+}
+
+function renderSuppliersTable(data) {
+  if (!data.length) { document.getElementById('suppliers-table').innerHTML = '<div class="empty">مفيش موردين</div>'; return; }
   let total = 0;
-  if (data.length === 0) {
-    document.getElementById('suppliers-table').innerHTML = '<div class="empty">مفيش موردين</div>';
-    return;
-  }
-  let html = '<table><thead><tr><th>المورد</th><th>الحالة</th><th>المبلغ</th></tr></thead><tbody>';
+  let h = '<table><thead><tr><th>المورد</th><th>الحالة</th><th>الرصيد</th></tr></thead><tbody>';
   data.forEach(s => {
-    let statusClass, statusText;
-    if (s.balance > 0) { statusClass='status-debt'; statusText='ليه عندنا'; total+=s.balance; }
-    else if (s.balance < 0) { statusClass='status-credit'; statusText='دفعنا زيادة'; }
-    else { statusClass='status-zero'; statusText='صفر'; }
-    const amtClass = s.balance > 0 ? 'amount-negative' : 'amount-neutral';
-    html += `<tr><td>${s.name}</td><td><span class="status-badge ${statusClass}">${statusText}</span></td><td class="${amtClass}">${fmt(Math.abs(s.balance))}</td></tr>`;
+    let cls, txt;
+    if(s.balance>0){cls='tag-debt';txt='ليه علينا';total+=s.balance;}
+    else if(s.balance<0){cls='tag-credit';txt='دفعنا زيادة';}
+    else{cls='tag-zero';txt='صفر';}
+    const ac = s.balance>0?'amt-neg':'amt-neu';
+    h += `<tr><td><strong>${s.name}</strong></td><td><span class="tag ${cls}">${txt}</span></td><td class="${ac}">${fmt(Math.abs(s.balance))}</td></tr>`;
   });
-  html += '</tbody></table>';
-  document.getElementById('suppliers-table').innerHTML = html;
-  document.getElementById('suppliers-total-badge').textContent = `إجمالي المديونيات: ${fmt(total)}`;
+  h += '</tbody></table>';
+  document.getElementById('suppliers-table').innerHTML = h;
+  document.getElementById('suppliers-badge').textContent = `${data.length} مورد | مديونيات: ${fmt(total)}`;
+}
+
+function filterSuppliersTable() {
+  const filter = document.getElementById('supplier-filter').value;
+  const search = document.getElementById('supplier-search').value.toLowerCase();
+  let filtered = suppliersData.filter(s => {
+    if(search && !s.name.toLowerCase().includes(search)) return false;
+    if(filter==='debt') return s.balance>0;
+    if(filter==='zero') return s.balance===0;
+    return true;
+  });
+  renderSuppliersTable(filtered);
 }
 
 // ===== Employees =====
 async function loadEmployees() {
+  document.getElementById('emp-table').innerHTML = '<div class="loading"><span class="spinner"></span></div>';
   const data = await api('employees');
-  if (data.length === 0) {
-    document.getElementById('employees-table').innerHTML = '<div class="empty">مفيش موظفين</div>';
-    return;
-  }
-  let html = '<table><thead><tr><th>الموظف</th><th>المرتب الأسبوعي</th><th>أسابيع</th><th>المستحق</th><th>سلف</th><th>خصم</th><th>مكافآت</th><th>تم صرف</th><th>الصافي</th></tr></thead><tbody>';
+  empData = data;
+  renderEmpTable(data);
+}
+
+function renderEmpTable(data) {
+  if (!data.length) { document.getElementById('emp-table').innerHTML = '<div class="empty">مفيش موظفين</div>'; return; }
+  let totalDue = 0;
+  let h = '<table><thead><tr><th>الموظف</th><th>المرتب</th><th>أسابيع</th><th>المستحق</th><th>سلف</th><th>خصم</th><th>مكافآت</th><th>تم صرف</th><th>الصافي</th></tr></thead><tbody>';
   data.forEach(e => {
     const d = e.data;
-    const netClass = d.net > 0 ? 'amount-negative' : d.net < 0 ? 'amount-positive' : 'amount-neutral';
-    html += `<tr>
-      <td><strong>${e.name}</strong></td>
-      <td>${fmt(d.salary)}</td>
-      <td>${d.weeks}</td>
-      <td class="amount-negative">${fmt(d.total_salary_due)}</td>
-      <td>${fmt(d.advances)}</td>
-      <td>${fmt(d.deductions)}</td>
-      <td class="amount-positive">${fmt(d.bonuses)}</td>
-      <td>${fmt(d.total_paid)}</td>
-      <td class="${netClass}"><strong>${fmt(d.net)}</strong></td>
-    </tr>`;
+    if(d.net>0) totalDue+=d.net;
+    const nc = d.net>0?'amt-neg':d.net<0?'amt-pos':'amt-neu';
+    h += `<tr><td><strong>${e.name}</strong></td><td>${fmt(d.salary)}</td><td>${d.weeks}</td><td class="amt-neg">${fmt(d.total_salary_due)}</td><td>${fmt(d.advances)}</td><td>${fmt(d.deductions)}</td><td class="amt-pos">${fmt(d.bonuses)}</td><td>${fmt(d.total_paid)}</td><td class="${nc}"><strong>${fmt(d.net)}</strong></td></tr>`;
   });
-  html += '</tbody></table>';
-  document.getElementById('employees-table').innerHTML = html;
+  h += '</tbody></table>';
+  document.getElementById('emp-table').innerHTML = h;
+  document.getElementById('emp-badge').textContent = `${data.length} موظف | مستحق: ${fmt(totalDue)}`;
+}
+
+function filterEmpTable() {
+  const s = document.getElementById('emp-search').value.toLowerCase();
+  renderEmpTable(s ? empData.filter(e=>e.name.toLowerCase().includes(s)) : empData);
 }
 
 // ===== Expenses =====
 async function loadExpenses() {
-  const data = await api('expenses');
-  const maxVal = Math.max(...Object.values(data.bands), data.okhra, 1);
-
-  // Bands chart
-  let chartHtml = '';
-  const colors = ['blue','green','yellow','purple','red','cyan'];
-  Object.entries(data.bands).forEach(([band, amount], i) => {
-    const color = colors[i % colors.length];
-    chartHtml += `<div class="bar-row">
-      <span class="bar-label">${band}</span>
-      <div class="bar-track"><div class="bar-fill ${color}" style="width:${(amount/maxVal)*100}%"></div></div>
-      <span class="bar-amount">${fmt(amount)}</span>
-    </div>`;
+  const from = document.getElementById('ex-from').value || daysAgo(30);
+  const to = document.getElementById('ex-to').value || today();
+  document.getElementById('ex-from').value = from;
+  document.getElementById('ex-to').value = to;
+  document.getElementById('ex-bands').innerHTML = '<div class="loading"><span class="spinner"></span></div>';
+  const data = await api(`expenses?from=${from}&to=${to}`);
+  const maxV = Math.max(...Object.values(data.bands||{}), data.okhra||0, 1);
+  let chart = '';
+  Object.entries(data.bands||{}).forEach(([band,amt],i)=>{
+    chart += `<div class="bar-row"><span class="bar-label">${band}</span><div class="bar-track"><div class="bar-fill ${COLORS[i%COLORS.length]}" style="width:${(amt/maxV)*100}%"></div></div><span class="bar-amount">${fmt(amt)}</span></div>`;
   });
-  if (data.okhra > 0) {
-    chartHtml += `<div class="bar-row">
-      <span class="bar-label">أخرى</span>
-      <div class="bar-track"><div class="bar-fill red" style="width:${(data.okhra/maxVal)*100}%"></div></div>
-      <span class="bar-amount">${fmt(data.okhra)}</span>
-    </div>`;
-  }
-  document.getElementById('expenses-bands-chart').innerHTML = chartHtml || '<div class="empty">مفيش مصروفات</div>';
-
-  // Summary
-  const total = data.total_bands + data.okhra;
-  document.getElementById('expenses-summary').innerHTML = `
+  if(data.okhra>0) chart += `<div class="bar-row"><span class="bar-label">أخرى</span><div class="bar-track"><div class="bar-fill red" style="width:${(data.okhra/maxV)*100}%"></div></div><span class="bar-amount">${fmt(data.okhra)}</span></div>`;
+  document.getElementById('ex-bands').innerHTML = chart || '<div class="empty">مفيش مصروفات</div>';
+  const total = (data.total_bands||0) + (data.okhra||0);
+  document.getElementById('ex-summary').innerHTML = `
     <table>
-      <tr><td>مصروفات إدارية</td><td class="amount-negative">${fmt(data.total_bands)}</td></tr>
-      <tr><td>مصروفات أخرى</td><td class="amount-negative">${fmt(data.okhra)}</td></tr>
-      <tr><td><strong>الإجمالي</strong></td><td class="amount-negative"><strong>${fmt(total)}</strong></td></tr>
+      <tr><td>مصروفات إدارية</td><td class="amt-neg">${fmt(data.total_bands||0)}</td></tr>
+      <tr><td>مصروفات أخرى</td><td class="amt-neg">${fmt(data.okhra||0)}</td></tr>
+      <tr><td><strong>الإجمالي</strong></td><td class="amt-neg"><strong>${fmt(total)}</strong></td></tr>
     </table>
   `;
 }
 
 // ===== Daily =====
-function loadDailySelector() {
-  const today = new Date();
-  const dayOfWeek = today.getDay();
-  // السبت = 6
-  const daysFromSaturday = (dayOfWeek + 1) % 7;
-  const saturday = new Date(today);
-  saturday.setDate(today.getDate() - daysFromSaturday);
-
-  let html = '';
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(saturday);
-    d.setDate(saturday.getDate() + i);
-    const dateStr = d.toISOString().split('T')[0];
-    const dayName = DAYS_AR[i];
-    const isToday = dateStr === today.toISOString().split('T')[0];
-    html += `<button class="day-btn ${isToday?'active':''}" onclick="loadDailyReport('${dateStr}', this)">${dayName}<br><small>${d.toLocaleDateString('ar-EG',{month:'short',day:'numeric'})}</small></button>`;
+function initDaily() {
+  const t = new Date(), dow = t.getDay();
+  const dfsn = (dow+1)%7;
+  const sat = new Date(t); sat.setDate(t.getDate()-dfsn);
+  const days = ['السبت','الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة'];
+  let h = '';
+  for(let i=0;i<7;i++){
+    const d=new Date(sat); d.setDate(sat.getDate()+i);
+    const ds=d.toISOString().split('T')[0];
+    const isT=ds===today();
+    h+=`<button class="day-btn ${isT?'active':''}" onclick="loadDailyReport('${ds}',this)">${days[i]}<small>${d.toLocaleDateString('ar-EG',{month:'short',day:'numeric'})}</small></button>`;
   }
-  document.getElementById('day-selector').innerHTML = html;
+  document.getElementById('day-selector').innerHTML=h;
+  document.getElementById('daily-custom').value=today();
+  loadDailyReport(today(),null);
+}
 
-  // Load today by default
-  const todayStr = today.toISOString().split('T')[0];
-  loadDailyReport(todayStr, null);
+function loadDailyCustom(){
+  const d=document.getElementById('daily-custom').value;
+  if(d) loadDailyReport(d,null);
 }
 
 async function loadDailyReport(dateStr, btn) {
-  if (btn) {
-    document.querySelectorAll('.day-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-  }
-  document.getElementById('daily-content').innerHTML = '<div class="loading">جاري التحميل</div>';
-  const data = await api('daily/' + dateStr);
-
-  if (data.records.length === 0) {
-    document.getElementById('daily-content').innerHTML = '<div class="empty">مفيش حركات في هذا اليوم</div>';
-    return;
-  }
-
-  let html = `
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:16px 20px;border-bottom:1px solid var(--border)">
-      <div style="text-align:center">
-        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">إجمالي الدخل</div>
-        <div style="font-size:20px;font-weight:900;color:var(--green)">${fmt(data.total_in)}</div>
-      </div>
-      <div style="text-align:center">
-        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">إجمالي الصرف</div>
-        <div style="font-size:20px;font-weight:900;color:var(--red)">${fmt(data.total_out)}</div>
-      </div>
-      <div style="text-align:center">
-        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">الصافي</div>
-        <div style="font-size:20px;font-weight:900;color:${data.net>=0?'var(--green)':'var(--red)'}">${fmt(data.net)}</div>
-      </div>
-    </div>
-    <table><thead><tr><th>النوع</th><th>المبلغ</th><th>الوصف</th></tr></thead><tbody>
-  `;
-  data.records.forEach(r => {
-    const cls = r.type === 'دخل' ? 'amount-positive' : 'amount-negative';
-    const icon = r.type === 'دخل' ? '💚' : '🔴';
-    html += `<tr><td>${icon} ${r.type}</td><td class="${cls}">${fmt(r.amount)}</td><td>${r.description||'-'}</td></tr>`;
+  if(btn){document.querySelectorAll('.day-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}
+  document.getElementById('daily-content').innerHTML='<div class="loading"><span class="spinner"></span></div>';
+  const data=await api('daily/'+dateStr);
+  if(!data.records||!data.records.length){document.getElementById('daily-content').innerHTML='<div class="empty">مفيش حركات</div>';return;}
+  let h=`<div class="summary-grid">
+    <div class="summary-item"><div class="summary-label">دخل</div><div class="summary-val amt-pos">${fmt(data.total_in)}</div></div>
+    <div class="summary-item"><div class="summary-label">صرف</div><div class="summary-val amt-neg">${fmt(data.total_out)}</div></div>
+    <div class="summary-item"><div class="summary-label">صافي</div><div class="summary-val ${data.net>=0?'amt-pos':'amt-neg'}">${fmt(data.net)}</div></div>
+  </div><div class="table-wrap"><table><thead><tr><th>النوع</th><th>المبلغ</th><th>الوصف</th></tr></thead><tbody>`;
+  data.records.forEach(r=>{
+    h+=`<tr><td><span class="tag ${r.type==='دخل'?'tag-in':'tag-out'}">${r.type}</span></td><td class="${r.type==='دخل'?'amt-pos':'amt-neg'}">${fmt(r.amount)}</td><td>${r.description||'-'}</td></tr>`;
   });
-  html += '</tbody></table>';
-  document.getElementById('daily-content').innerHTML = html;
+  h+='</tbody></table></div>';
+  document.getElementById('daily-content').innerHTML=h;
 }
 
-function loadPage(name) {
-  if (name === 'overview') loadOverview();
-  else if (name === 'clients') loadClients();
-  else if (name === 'suppliers') loadSuppliers();
-  else if (name === 'employees') loadEmployees();
-  else if (name === 'expenses') loadExpenses();
-  else if (name === 'daily') loadDailySelector();
+function skeletonCards(n) {
+  return Array(n).fill('<div class="card blue"><div class="skeleton" style="width:60%;height:11px"></div><div class="skeleton" style="width:80%;height:22px;margin-top:8px"></div><div class="skeleton" style="width:40%;height:11px;margin-top:6px"></div></div>').join('');
 }
 
-function loadAll() { loadOverview(); }
-
-// Init
+// ===== Init =====
+document.getElementById('ov-from').value = daysAgo(7);
+document.getElementById('ov-to').value = today();
+document.getElementById('last-update').textContent = new Date().toLocaleTimeString('ar-EG');
 loadOverview();
 </script>
 </body>
 </html>'''
 
-# ============ API Routes ============
+# ============ API ============
+
+def _get_date_range(default_days=30):
+    date_from = request.args.get('from', daysAgo(default_days))
+    date_to = request.args.get('to', str(date.today()))
+    return date_from, date_to
+
+def daysAgo(n):
+    return str(date.today() - timedelta(days=n))
 
 @app.route('/')
 def index():
     return render_template_string(DASHBOARD_HTML)
 
+@app.route('/api/cache/clear')
+def clear_cache():
+    cache_clear()
+    return jsonify({'ok': True})
+
 @app.route('/api/overview')
 def api_overview():
+    date_from, date_to = _get_date_range(7)
+    cache_key = f'overview_{date_from}_{date_to}'
+    cached = cache_get(cache_key)
+    if cached: return jsonify(cached)
+
     try:
         balance = get_balance()
-        month_in, month_out = get_monthly_khazna_report()
-        month_net = month_in - month_out
-        _, clients_details = get_clients_total()
+        rows, period_in, period_out = get_khazna_range(date_from, date_to)
+        net = period_in - period_out
+
+        suppliers_debt = sum(
+            max(get_person_balance("مورد", n), 0)
+            for n in get_all_suppliers()
+        )
         clients_credit = sum(
-            get_person_balance("عميل", name.replace("  • ", "").split(":")[0].strip())
-            for name in clients_details
-        ) if clients_details else 0
+            max(get_person_balance("عميل", n), 0)
+            for n in get_all_clients()
+        )
+        salary_due = sum(
+            max(e['data']['net'], 0)
+            for e in get_weekly_employees_report()
+        )
 
-        _, suppliers_details = get_suppliers_total()
-        suppliers_debt = 0
-        for name in get_all_suppliers():
-            b = get_person_balance("مورد", name)
-            if b > 0:
-                suppliers_debt += b
-
-        # Salary due
-        salary_due = 0
-        for emp in get_weekly_employees_report():
-            if emp['data']['net'] > 0:
-                salary_due += emp['data']['net']
-
-        # Today
-        today_str = str(date.today())
-        today_records, today_in, today_out = get_daily_khazna_report(today_str)
-
-        return jsonify({
+        result = {
             'balance': balance,
-            'month_in': month_in,
-            'month_out': month_out,
-            'month_net': month_net,
-            'clients_credit': clients_credit,
+            'period_in': period_in,
+            'period_out': period_out,
+            'net': net,
             'suppliers_debt': suppliers_debt,
+            'clients_credit': clients_credit,
             'salary_due': salary_due,
-            'today_count': len(today_records),
-            'today_records': today_records
-        })
+        }
+        cache_set(cache_key, result)
+        return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/clients')
 def api_clients():
+    date_from, date_to = _get_date_range(3650)
+    cache_key = f'clients_{date_from}_{date_to}'
+    cached = cache_get(cache_key)
+    if cached: return jsonify(cached)
     try:
-        result = []
-        for name in get_all_clients():
-            b = get_person_balance("عميل", name)
-            result.append({'name': name, 'balance': b})
+        result = [{'name': n, 'balance': get_person_balance("عميل", n)} for n in get_all_clients()]
+        cache_set(cache_key, result)
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/suppliers')
 def api_suppliers():
+    date_from, date_to = _get_date_range(3650)
+    cache_key = f'suppliers_{date_from}_{date_to}'
+    cached = cache_get(cache_key)
+    if cached: return jsonify(cached)
     try:
-        result = []
-        for name in get_all_suppliers():
-            b = get_person_balance("مورد", name)
-            result.append({'name': name, 'balance': b})
+        result = [{'name': n, 'balance': get_person_balance("مورد", n)} for n in get_all_suppliers()]
+        cache_set(cache_key, result)
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/employees')
 def api_employees():
+    cached = cache_get('employees')
+    if cached: return jsonify(cached)
     try:
-        return jsonify(get_weekly_employees_report())
+        result = get_weekly_employees_report()
+        cache_set('employees', result)
+        return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/expenses')
 def api_expenses():
+    date_from, date_to = _get_date_range(30)
+    cache_key = f'expenses_{date_from}_{date_to}'
+    cached = cache_get(cache_key)
+    if cached: return jsonify(cached)
     try:
-        bands, okhra = get_monthly_masrof_report()
-        total_bands = sum(bands.values()) if bands else 0
-        return jsonify({
-            'bands': bands,
-            'okhra': okhra,
-            'total_bands': total_bands
-        })
+        bands, okhra = get_masrof_range(date_from, date_to)
+        result = {'bands': bands, 'okhra': okhra, 'total_bands': sum(bands.values())}
+        cache_set(cache_key, result)
+        return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/daily/<selected_date>')
 def api_daily(selected_date):
+    cache_key = f'daily_{selected_date}'
+    # Don't cache today
+    if selected_date != str(date.today()):
+        cached = cache_get(cache_key)
+        if cached: return jsonify(cached)
     try:
         records, total_in, total_out = get_daily_khazna_report(selected_date)
-        return jsonify({
-            'records': records,
-            'total_in': total_in,
-            'total_out': total_out,
-            'net': total_in - total_out
-        })
+        result = {'records': records, 'total_in': total_in, 'total_out': total_out, 'net': total_in - total_out}
+        if selected_date != str(date.today()):
+            cache_set(cache_key, result)
+        return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
