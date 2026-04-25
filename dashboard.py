@@ -1,89 +1,183 @@
-from flask import Flask, jsonify, render_template_string, request
+from flask import Flask, jsonify, render_template_string, request, session, redirect, url_for
 from database import (
     get_balance, get_clients_total, get_suppliers_total,
     get_all_clients, get_all_suppliers, get_person_balance,
     get_weekly_employees_report, get_daily_khazna_report,
-    get_db
+    get_db, authenticate_company
 )
 from datetime import date, timedelta
-from functools import lru_cache
-import time
+from functools import wraps
 import os
 
 app = Flask(__name__)
-
-# ============ Simple Cache ============
-_cache = {}
-_cache_ttl = {}
-CACHE_SECONDS = 60  # كل دقيقة يتحدث
-
-def cache_get(key):
-    if key in _cache and time.time() - _cache_ttl.get(key, 0) < CACHE_SECONDS:
-        return _cache[key]
-    return None
-
-def cache_set(key, value):
-    _cache[key] = value
-    _cache_ttl[key] = time.time()
-
-def cache_clear():
-    _cache.clear()
-    _cache_ttl.clear()
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super_secret_default_key_123")
 
 # ============ DB Helpers ============
 
-def get_khazna_range(date_from, date_to):
+def get_khazna_range(date_from, date_to, company_id):
     conn = get_db()
     c = conn.cursor()
     c.execute("""
         SELECT date, type, amount, description
         FROM khazna
-        WHERE date >= %s AND date <= %s
+        WHERE date >= %s AND date <= %s AND company_id = %s
         ORDER BY created_at DESC
-    """, (date_from, date_to))
+    """, (date_from, date_to, company_id))
     rows = [dict(r) for r in c.fetchall()]
     conn.close()
     total_in = sum(r['amount'] for r in rows if r['type'] == 'دخل')
     total_out = sum(r['amount'] for r in rows if r['type'] == 'صرف')
     return rows, total_in, total_out
 
-def get_person_transactions_range(name, person_type, date_from, date_to):
+def get_person_transactions_range(name, person_type, date_from, date_to, company_id):
     conn = get_db()
     c = conn.cursor()
     c.execute("""
         SELECT date, trans_type as type, amount
         FROM person_transactions
         WHERE person_name=%s AND person_type=%s
-        AND date >= %s AND date <= %s
+        AND date >= %s AND date <= %s AND company_id = %s
         ORDER BY created_at DESC
-    """, (name, person_type, date_from, date_to))
+    """, (name, person_type, date_from, date_to, company_id))
     rows = [dict(r) for r in c.fetchall()]
     conn.close()
     return rows
 
-def get_masrof_range(date_from, date_to):
+def get_masrof_range(date_from, date_to, company_id):
     conn = get_db()
     c = conn.cursor()
     c.execute("""
         SELECT band, SUM(amount) as total
-        FROM masrof_edari WHERE date >= %s AND date <= %s
+        FROM masrof_edari WHERE date >= %s AND date <= %s AND company_id = %s
         GROUP BY band
-    """, (date_from, date_to))
+    """, (date_from, date_to, company_id))
     bands = {r['band']: r['total'] for r in c.fetchall()}
-    c.execute("SELECT SUM(amount) as total FROM masrof_okhra WHERE date >= %s AND date <= %s", (date_from, date_to))
+    c.execute("SELECT SUM(amount) as total FROM masrof_okhra WHERE date >= %s AND date <= %s AND company_id = %s", (date_from, date_to, company_id))
     row = c.fetchone()
     okhra = float(row['total']) if row and row['total'] else 0
     conn.close()
     return bands, okhra
 
-# ============ HTML ============
+# ============ Auth Decorator ============
+
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'company_id' not in session:
+            if request.path.startswith('/api/'):
+                return jsonify({'error': 'Unauthorized'}), 401
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+LOGIN_HTML = r'''<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>تسجيل الدخول - لوحة التحكم</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { 
+    font-family: 'Cairo', sans-serif; 
+    background: #0a0e1a; 
+    color: #f1f5f9;
+    display: flex; 
+    justify-content: center; 
+    align-items: center; 
+    min-height: 100vh;
+    background-image: radial-gradient(circle at top right, rgba(59,130,246,0.1), transparent 40%),
+                      radial-gradient(circle at bottom left, rgba(139,92,246,0.1), transparent 40%);
+  }
+  .login-card {
+    background: rgba(17, 24, 39, 0.7);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 40px;
+    border-radius: 20px;
+    width: 100%;
+    max-width: 400px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  }
+  .login-card h2 {
+    text-align: center;
+    margin-bottom: 30px;
+    font-weight: 900;
+    font-size: 24px;
+    color: #fff;
+  }
+  .input-group { margin-bottom: 20px; }
+  .input-group label { display: block; margin-bottom: 8px; font-size: 14px; color: #94a3b8; font-weight: bold; }
+  .input-group input {
+    width: 100%;
+    padding: 12px 16px;
+    border-radius: 10px;
+    border: 1px solid #1e2d45;
+    background: #0f172a;
+    color: #fff;
+    font-family: 'Cairo', sans-serif;
+    outline: none;
+    transition: all 0.3s;
+  }
+  .input-group input:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.2); }
+  .login-btn {
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: 700;
+    font-family: 'Cairo', sans-serif;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+    margin-top: 10px;
+  }
+  .login-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px -10px rgba(59,130,246,0.5);
+  }
+  .error {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+    padding: 10px;
+    border-radius: 8px;
+    text-align: center;
+    font-size: 14px;
+    margin-bottom: 20px;
+    border: 1px solid rgba(239, 68, 68, 0.2);
+  }
+</style>
+</head>
+<body>
+  <div class="login-card">
+    <h2>تسجيل الدخول</h2>
+    {% if error %}
+    <div class="error">{{ error }}</div>
+    {% endif %}
+    <form method="POST">
+      <div class="input-group">
+        <label>اسم الشركة</label>
+        <input type="text" name="company_name" required autocomplete="off">
+      </div>
+      <div class="input-group">
+        <label>كلمة المرور</label>
+        <input type="password" name="password" required>
+      </div>
+      <button type="submit" class="login-btn">دخول</button>
+    </form>
+  </div>
+</body>
+</html>'''
 
 DASHBOARD_HTML = r'''<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>لوحة التحكم المالية</title>
+<title>لوحة التحكم المالية - {{ company_name }}</title>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;900&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -155,6 +249,8 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);min-h
 .btn:hover{border-color:var(--accent);color:var(--accent);}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:white;}
 .btn.primary:hover{background:#2563eb;}
+.btn.danger{background:var(--red);border-color:var(--red);color:white;text-decoration:none;text-align:center;display:inline-block;}
+.btn.danger:hover{background:#dc2626;}
 .btn-group{display:flex;gap:6px;flex-wrap:wrap;}
 .quick-btn{
   padding:5px 10px;border-radius:20px;font-size:11px;font-weight:700;
@@ -317,7 +413,7 @@ tr:hover td{background:rgba(59,130,246,0.04);}
 
 <aside class="sidebar" id="sidebar">
   <div class="logo">
-    <h1>💼 المالية</h1>
+    <h1>💼 {{ company_name }}</h1>
     <span id="last-update">لوحة التحكم</span>
   </div>
   <nav>
@@ -329,8 +425,7 @@ tr:hover td{background:rgba(59,130,246,0.04);}
     <div class="nav-item" onclick="showPage('daily',this)"><span class="nav-icon">📅</span>التقرير اليومي</div>
   </nav>
   <div class="sidebar-footer">
-    <div class="cache-info" id="cache-info">⚡ Cache: 60 ثانية</div>
-    <button class="btn primary" style="width:100%;margin-top:8px;" onclick="refreshAll()">🔄 تحديث الكل</button>
+    <a href="/logout" class="btn danger" style="width:100%; margin-top:8px;">تسجيل خروج</a>
   </div>
 </aside>
 
@@ -522,16 +617,11 @@ function setQuick(page, days, el) {
 
 async function api(url) {
   const res = await fetch('/api/'+url);
+  if (res.status === 401) {
+    window.location.href = '/login';
+    return {};
+  }
   return res.json();
-}
-
-function refreshAll() {
-  fetch('/api/cache/clear').then(()=>{
-    const activePage = document.querySelector('.page.active').id.replace('page-','');
-    showPage(activePage, null);
-    document.getElementById('cache-info').textContent = '🔄 تم التحديث';
-    setTimeout(()=>document.getElementById('cache-info').textContent='⚡ Cache: 60 ثانية', 2000);
-  });
 }
 
 // ===== Overview =====
@@ -548,6 +638,8 @@ async function loadOverview() {
     api(`overview?from=${from}&to=${to}`),
     api(`daily/${today()}`)
   ]);
+  
+  if(!ov.balance && ov.balance !== 0) return; // Unauth
 
   const bc = ov.balance >= 0 ? 'green':'red';
   const nc = ov.net >= 0 ? 'green':'red';
@@ -559,7 +651,7 @@ async function loadOverview() {
     <div class="card yellow"><div class="card-label">مديونيات الموردين</div><div class="card-value yellow">${fmt(ov.suppliers_debt)}</div><div class="card-sub">إجمالي ما علينا</div><span class="card-icon">🏭</span></div>
     <div class="card green"><div class="card-label">فلوس العملاء</div><div class="card-value green">${fmt(ov.clients_credit)}</div><div class="card-sub">إجمالي ما لنا</div><span class="card-icon">👥</span></div>
     <div class="card purple"><div class="card-label">مرتبات مستحقة</div><div class="card-value purple">${fmt(ov.salary_due)}</div><div class="card-sub">إجمالي الموظفين</div><span class="card-icon">👷</span></div>
-    <div class="card cyan"><div class="card-label">حركات اليوم</div><div class="card-value blue">${daily.records.length}</div><div class="card-sub">إجمالي ${fmt(daily.total_in)} دخل</div><span class="card-icon">⚡</span></div>
+    <div class="card cyan"><div class="card-label">حركات اليوم</div><div class="card-value blue">${daily.records ? daily.records.length : 0}</div><div class="card-sub">إجمالي ${fmt(daily.total_in || 0)} دخل</div><span class="card-icon">⚡</span></div>
   `;
 
   const maxV = Math.max(ov.period_in, ov.period_out, 1);
@@ -569,8 +661,8 @@ async function loadOverview() {
     <div class="bar-row"><span class="bar-label">الصافي</span><div class="bar-track"><div class="bar-fill ${ov.net>=0?'blue':'red'}" style="width:${Math.min(Math.abs(ov.net)/maxV*100,100)}%"></div></div><span class="bar-amount">${fmt(ov.net)}</span></div>
   `;
 
-  document.getElementById('ov-txcount').textContent = daily.records.length + ' حركة';
-  if (!daily.records.length) {
+  document.getElementById('ov-txcount').textContent = (daily.records ? daily.records.length : 0) + ' حركة';
+  if (!daily.records || !daily.records.length) {
     document.getElementById('ov-recent').innerHTML = '<div class="empty">مفيش حركات اليوم</div>';
   } else {
     let h = '<table><thead><tr><th>النوع</th><th>المبلغ</th><th>الوصف</th></tr></thead><tbody>';
@@ -590,6 +682,7 @@ async function loadClients() {
   document.getElementById('cl-to').value = to;
   document.getElementById('clients-table').innerHTML = '<div class="loading"><span class="spinner"></span></div>';
   const data = await api(`clients?from=${from}&to=${to}`);
+  if(!data || data.error) return;
   clientsData = data;
   renderClientsTable(data);
 }
@@ -632,6 +725,7 @@ async function loadSuppliers() {
   document.getElementById('sp-to').value = to;
   document.getElementById('suppliers-table').innerHTML = '<div class="loading"><span class="spinner"></span></div>';
   const data = await api(`suppliers?from=${from}&to=${to}`);
+  if(!data || data.error) return;
   suppliersData = data;
   renderSuppliersTable(data);
 }
@@ -669,6 +763,7 @@ function filterSuppliersTable() {
 async function loadEmployees() {
   document.getElementById('emp-table').innerHTML = '<div class="loading"><span class="spinner"></span></div>';
   const data = await api('employees');
+  if(!data || data.error) return;
   empData = data;
   renderEmpTable(data);
 }
@@ -701,6 +796,7 @@ async function loadExpenses() {
   document.getElementById('ex-to').value = to;
   document.getElementById('ex-bands').innerHTML = '<div class="loading"><span class="spinner"></span></div>';
   const data = await api(`expenses?from=${from}&to=${to}`);
+  if(!data || data.error) return;
   const maxV = Math.max(...Object.values(data.bands||{}), data.okhra||0, 1);
   let chart = '';
   Object.entries(data.bands||{}).forEach(([band,amt],i)=>{
@@ -745,6 +841,7 @@ async function loadDailyReport(dateStr, btn) {
   if(btn){document.querySelectorAll('.day-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}
   document.getElementById('daily-content').innerHTML='<div class="loading"><span class="spinner"></span></div>';
   const data=await api('daily/'+dateStr);
+  if(!data || data.error) return;
   if(!data.records||!data.records.length){document.getElementById('daily-content').innerHTML='<div class="empty">مفيش حركات</div>';return;}
   let h=`<div class="summary-grid">
     <div class="summary-item"><div class="summary-label">دخل</div><div class="summary-val amt-pos">${fmt(data.total_in)}</div></div>
@@ -774,45 +871,59 @@ loadOverview();
 # ============ API ============
 
 def _get_date_range(default_days=30):
-    date_from = request.args.get('from', daysAgo(default_days))
+    date_from = request.args.get('from', str(date.today() - timedelta(days=default_days)))
     date_to = request.args.get('to', str(date.today()))
     return date_from, date_to
 
-def daysAgo(n):
-    return str(date.today() - timedelta(days=n))
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    error = None
+    if request.method == 'POST':
+        company_name = request.form.get('company_name', '').strip()
+        password = request.form.get('password', '').strip()
+        
+        company = authenticate_company(company_name, password)
+        if company:
+            session['company_id'] = company['id']
+            session['company_name'] = company['name']
+            return redirect(url_for('index'))
+        else:
+            error = "اسم الشركة أو كلمة المرور غير صحيحة"
+            
+    return render_template_string(LOGIN_HTML, error=error)
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
 
 @app.route('/')
+@login_required
 def index():
-    return render_template_string(DASHBOARD_HTML)
-
-@app.route('/api/cache/clear')
-def clear_cache():
-    cache_clear()
-    return jsonify({'ok': True})
+    return render_template_string(DASHBOARD_HTML, company_name=session.get('company_name', 'الشركة'))
 
 @app.route('/api/overview')
+@login_required
 def api_overview():
+    company_id = session['company_id']
     date_from, date_to = _get_date_range(7)
-    cache_key = f'overview_{date_from}_{date_to}'
-    cached = cache_get(cache_key)
-    if cached: return jsonify(cached)
 
     try:
-        balance = get_balance()
-        rows, period_in, period_out = get_khazna_range(date_from, date_to)
+        balance = get_balance(company_id)
+        rows, period_in, period_out = get_khazna_range(date_from, date_to, company_id)
         net = period_in - period_out
 
         suppliers_debt = sum(
-            max(get_person_balance("مورد", n), 0)
-            for n in get_all_suppliers()
+            max(get_person_balance("مورد", n, company_id), 0)
+            for n in get_all_suppliers(company_id)
         )
         clients_credit = sum(
-            max(get_person_balance("عميل", n), 0)
-            for n in get_all_clients()
+            max(get_person_balance("عميل", n, company_id), 0)
+            for n in get_all_clients(company_id)
         )
         salary_due = sum(
             max(e['data']['net'], 0)
-            for e in get_weekly_employees_report()
+            for e in get_weekly_employees_report(company_id)
         )
 
         result = {
@@ -824,74 +935,59 @@ def api_overview():
             'clients_credit': clients_credit,
             'salary_due': salary_due,
         }
-        cache_set(cache_key, result)
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/clients')
+@login_required
 def api_clients():
-    date_from, date_to = _get_date_range(3650)
-    cache_key = f'clients_{date_from}_{date_to}'
-    cached = cache_get(cache_key)
-    if cached: return jsonify(cached)
+    company_id = session['company_id']
     try:
-        result = [{'name': n, 'balance': get_person_balance("عميل", n)} for n in get_all_clients()]
-        cache_set(cache_key, result)
+        result = [{'name': n, 'balance': get_person_balance("عميل", n, company_id)} for n in get_all_clients(company_id)]
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/suppliers')
+@login_required
 def api_suppliers():
-    date_from, date_to = _get_date_range(3650)
-    cache_key = f'suppliers_{date_from}_{date_to}'
-    cached = cache_get(cache_key)
-    if cached: return jsonify(cached)
+    company_id = session['company_id']
     try:
-        result = [{'name': n, 'balance': get_person_balance("مورد", n)} for n in get_all_suppliers()]
-        cache_set(cache_key, result)
+        result = [{'name': n, 'balance': get_person_balance("مورد", n, company_id)} for n in get_all_suppliers(company_id)]
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/employees')
+@login_required
 def api_employees():
-    cached = cache_get('employees')
-    if cached: return jsonify(cached)
+    company_id = session['company_id']
     try:
-        result = get_weekly_employees_report()
-        cache_set('employees', result)
+        result = get_weekly_employees_report(company_id)
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/expenses')
+@login_required
 def api_expenses():
+    company_id = session['company_id']
     date_from, date_to = _get_date_range(30)
-    cache_key = f'expenses_{date_from}_{date_to}'
-    cached = cache_get(cache_key)
-    if cached: return jsonify(cached)
     try:
-        bands, okhra = get_masrof_range(date_from, date_to)
+        bands, okhra = get_masrof_range(date_from, date_to, company_id)
         result = {'bands': bands, 'okhra': okhra, 'total_bands': sum(bands.values())}
-        cache_set(cache_key, result)
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/daily/<selected_date>')
+@login_required
 def api_daily(selected_date):
-    cache_key = f'daily_{selected_date}'
-    # Don't cache today
-    if selected_date != str(date.today()):
-        cached = cache_get(cache_key)
-        if cached: return jsonify(cached)
+    company_id = session['company_id']
     try:
-        records, total_in, total_out = get_daily_khazna_report(selected_date)
+        records, total_in, total_out = get_daily_khazna_report(selected_date, company_id)
         result = {'records': records, 'total_in': total_in, 'total_out': total_out, 'net': total_in - total_out}
-        if selected_date != str(date.today()):
-            cache_set(cache_key, result)
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -899,3 +995,4 @@ def api_daily(selected_date):
 if __name__ == '__main__':
     port = int(os.environ.get('DASHBOARD_PORT', 8080))
     app.run(host='0.0.0.0', port=port, debug=False)
+
