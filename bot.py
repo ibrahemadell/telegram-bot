@@ -17,7 +17,7 @@ from database import (init_db, add_transaction, add_client, add_supplier,
                    get_person_transactions, generate_pdf_report,
                    get_daily_khazna_report,
                    get_user_company_id, add_company, get_all_companies,
-                   add_user_to_company, remove_user_from_company)
+                   add_user_account, remove_user_account, link_telegram_to_user, get_company_users)
 import os
 import re
 
@@ -52,10 +52,39 @@ async def check_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int 
     telegram_id = update.effective_user.id
     company_id = get_user_company_id(telegram_id)
     if not company_id:
-        await update.message.reply_text("🚫 حسابك مش مربوط بأي شركة. تواصل مع الأدمن.", reply_markup=ReplyKeyboardRemove())
+        if str(telegram_id) != str(ADMIN_ID):
+            await update.message.reply_text("🚫 حسابك مش مربوط بأي شركة. ابعت كلمة المرور (الباسورد) اللي خدتها من الإدارة عشان يتفعل:", reply_markup=ReplyKeyboardRemove())
         return None
     context.user_data['company_id'] = company_id
     return company_id
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    telegram_id = update.effective_user.id
+    if str(telegram_id) == str(ADMIN_ID):
+        await update.message.reply_text("👑 أهلاً بيك يا أدمن! استخدم /admin لفتح لوحة التحكم.")
+    company_id = get_user_company_id(telegram_id)
+    if company_id:
+        await update.message.reply_text("👋 أهلاً بيك! حسابك متسجل وجاهز.\nاضغط على الأوامر عشان تبدأ:\n/3mlaa - العملاء\n/mwrdeen - الموردين\n/mwzfeen - الموظفين\n/dakhl - الدخل\n/sarf - الصرف\n/taqarir - التقارير\n/eedadat - الإعدادات")
+    else:
+        await update.message.reply_text("🚫 حسابك مش مربوط. ابعت كلمة المرور (الباسورد) اللي خدتها من الإدارة هنا:")
+
+async def handle_unlinked_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    telegram_id = update.effective_user.id
+    if get_user_company_id(telegram_id):
+        await update.message.reply_text("اضغط على أحد الأوامر من القائمة عشان تبدأ، مثلاً /3mlaa")
+        return ConversationHandler.END
+    
+    text = update.message.text
+    res = link_telegram_to_user(text, telegram_id)
+    if res == "success":
+        await update.message.reply_text("✅ تم ربط حسابك بنجاح! تقدر دلوقتي تختار الأوامر من القائمة:\n/3mlaa\n/mwrdeen\n/mwzfeen\n/dakhl\n/sarf\n/taqarir\n/eedadat")
+    elif res == "invalid":
+        await update.message.reply_text("❌ كلمة المرور غلط. تأكد منها وابعتها تاني:")
+    elif res == "linked":
+        await update.message.reply_text("⚠️ كلمة المرور دي مربوطة بحساب تاني. تواصل مع الإدارة.")
+    elif res == "already_has_account":
+        await update.message.reply_text("⚠️ حسابك ده مربوط بشركة بالفعل.")
+    return ConversationHandler.END
 
 # ============ القوائم الرئيسية ============
 
@@ -857,15 +886,16 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ============ لوحة تحكم الأدمن ============
 
 (ADMIN_MAIN, ADMIN_ADD_COMPANY_NAME, ADMIN_ADD_COMPANY_PASS, 
- ADMIN_LINK_USER_ID, ADMIN_LINK_COMPANY, ADMIN_UNLINK_USER) = range(100, 106)
+ ADMIN_ADD_USER_COMPANY, ADMIN_ADD_USER_NAME, ADMIN_ADD_USER_PASS,
+ ADMIN_SHOW_USERS_COMPANY, ADMIN_DEL_USER_ID) = range(100, 108)
 
 async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not ADMIN_ID or str(update.effective_user.id) != str(ADMIN_ID):
         return ConversationHandler.END
     keyboard = [
         ["➕ إضافة شركة", "📋 عرض الشركات"],
-        ["🔗 ربط يوزر بشركة", "🗑️ حذف يوزر من شركة"],
-        ["❌ إلغاء"]
+        ["➕ إضافة حساب موظف", "📋 عرض موظفين شركة"],
+        ["🗑️ حذف حساب موظف", "❌ إلغاء"]
     ]
     await update.message.reply_text("👑 لوحة تحكم الإدارة:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
     return ADMIN_MAIN
@@ -885,12 +915,22 @@ async def admin_handle_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 msg += f"🔹 {c['id']} - {c['name']} (يوزرات: {c['user_count']})\nباسورد الداشبورد: `{c['dashboard_password']}`\n\n"
             await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
-    elif choice == "🔗 ربط يوزر بشركة":
-        await update.message.reply_text("👤 ابعت الـ Telegram ID بتاع اليوزر:", reply_markup=ReplyKeyboardRemove())
-        return ADMIN_LINK_USER_ID
-    elif choice == "🗑️ حذف يوزر من شركة":
-        await update.message.reply_text("🗑️ ابعت الـ Telegram ID بتاع اليوزر اللي عايز تحذفه:", reply_markup=ReplyKeyboardRemove())
-        return ADMIN_UNLINK_USER
+    elif choice == "➕ إضافة حساب موظف":
+        companies = get_all_companies()
+        if not companies:
+            await update.message.reply_text("❌ مفيش شركات، ضيف شركة الأول.")
+            return ConversationHandler.END
+        msg = "🏢 اختار رقم الشركة اللي هتضيف فيها الموظف:\n\n"
+        for c in companies:
+            msg += f"{c['id']} - {c['name']}\n"
+        await update.message.reply_text(msg)
+        return ADMIN_ADD_USER_COMPANY
+    elif choice == "📋 عرض موظفين شركة":
+        await update.message.reply_text("🏢 اكتب رقم الشركة اللي عايز تعرض موظفينها:")
+        return ADMIN_SHOW_USERS_COMPANY
+    elif choice == "🗑️ حذف حساب موظف":
+        await update.message.reply_text("🗑️ ابعت الـ ID بتاع الحساب اللي عايز تحذفه (هتلاقيه في عرض الموظفين):", reply_markup=ReplyKeyboardRemove())
+        return ADMIN_DEL_USER_ID
     elif choice == "❌ إلغاء":
         await update.message.reply_text("❌ تم الإلغاء", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
@@ -911,53 +951,67 @@ async def admin_add_company_pass(update: Update, context: ContextTypes.DEFAULT_T
         await update.message.reply_text(f"⚠️ الشركة دي موجودة قبل كده.")
     return ConversationHandler.END
 
-async def admin_link_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        user_id = int(update.message.text)
-        context.user_data['link_user_id'] = user_id
-        companies = get_all_companies()
-        if not companies:
-            await update.message.reply_text("❌ مفيش شركات، ضيف شركة الأول.")
-            return ConversationHandler.END
-        msg = "🏢 اختار رقم الشركة اللي هتربط بيها اليوزر:\n\n"
-        for c in companies:
-            msg += f"{c['id']} - {c['name']}\n"
-        await update.message.reply_text(msg)
-        return ADMIN_LINK_COMPANY
-    except ValueError:
-        await update.message.reply_text("❌ لازم تكتب أرقام بس للـ ID:")
-        return ADMIN_LINK_USER_ID
-
-async def admin_link_company(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def admin_add_user_company(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         company_id = int(update.message.text)
-        user_id = context.user_data['link_user_id']
-        if add_user_to_company(user_id, company_id):
-            await update.message.reply_text(f"✅ تم ربط اليوزر {user_id} بالشركة {company_id} بنجاح.")
+        context.user_data['new_user_company_id'] = company_id
+        await update.message.reply_text("👤 اكتب اسم الموظف (الاسم بس):")
+        return ADMIN_ADD_USER_NAME
+    except ValueError:
+        await update.message.reply_text("❌ اكتب أرقام بس للشركة:")
+        return ADMIN_ADD_USER_COMPANY
+
+async def admin_add_user_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['new_user_name'] = update.message.text
+    await update.message.reply_text("🔑 اكتب كلمة مرور (باسورد) قوية ومميزة للموظف ده عشان يدخل بيها:")
+    return ADMIN_ADD_USER_PASS
+
+async def admin_add_user_pass(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    password = update.message.text
+    company_id = context.user_data['new_user_company_id']
+    username = context.user_data['new_user_name']
+    
+    if add_user_account(company_id, username, password):
+        await update.message.reply_text(f"✅ تم إنشاء حساب الموظف بنجاح!\n\n🏢 رقم الشركة: {company_id}\n👤 الاسم: {username}\n🔑 الباسورد: `{password}`\n\nابعت الباسورد ده للموظف عشان يسجل بيه.", parse_mode='Markdown')
+    else:
+        await update.message.reply_text("❌ حصلت مشكلة! ممكن الباسورد ده متسجل قبل كده، جرب باسورد تاني.")
+    return ConversationHandler.END
+
+async def admin_show_users_company(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        company_id = int(update.message.text)
+        users = get_company_users(company_id)
+        if not users:
+            await update.message.reply_text(f"📭 مفيش موظفين متسجلين في الشركة رقم {company_id}")
         else:
-            await update.message.reply_text("❌ حصلت مشكلة في الربط (ممكن الشركة مش موجودة).")
+            msg = f"👥 *موظفين الشركة {company_id}:*\n\n"
+            for u in users:
+                linked = "✅ (مربوط)" if u['telegram_id'] else "⏳ (مش مربوط)"
+                msg += f"ID: {u['id']} | الاسم: {u['username']} | الباسورد: `{u['password']}` | {linked}\n"
+            await update.message.reply_text(msg, parse_mode='Markdown')
         return ConversationHandler.END
     except ValueError:
-        await update.message.reply_text("❌ اكتب رقم الشركة بس:")
-        return ADMIN_LINK_COMPANY
+        await update.message.reply_text("❌ اكتب أرقام بس:")
+        return ADMIN_SHOW_USERS_COMPANY
 
-async def admin_unlink_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def admin_del_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_id = int(update.message.text)
-        if remove_user_from_company(user_id):
-            await update.message.reply_text(f"✅ تم حذف اليوزر {user_id} من الشركة.")
+        if remove_user_account(user_id=user_id):
+            await update.message.reply_text(f"✅ تم حذف الحساب رقم {user_id} بنجاح.")
         else:
-            await update.message.reply_text("❌ اليوزر ده مش مربوط بشركة أصلاً.")
+            await update.message.reply_text("❌ الحساب ده مش موجود.")
         return ConversationHandler.END
     except ValueError:
-        await update.message.reply_text("❌ لازم تكتب أرقام بس للـ ID:")
-        return ADMIN_UNLINK_USER
+        await update.message.reply_text("❌ اكتب أرقام بس للـ ID:")
+        return ADMIN_DEL_USER_ID
 
 # ============ تشغيل البوت ============
 
 app = ApplicationBuilder().token(TOKEN).build()
 
 entry_points_list = [
+    CommandHandler("start", start),
     CommandHandler("3mlaa", ameel_menu),
     CommandHandler("mwrdeen", mwrd_menu),
     CommandHandler("mwzfeen", mwzf_menu),
@@ -968,7 +1022,7 @@ entry_points_list = [
 ]
 
 conv_handler = ConversationHandler(
-    entry_points=entry_points_list,
+    entry_points=entry_points_list + [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_unlinked_password)],
     states={
         MAIN_ACTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_main_action)],
         AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_amount)],
@@ -995,9 +1049,11 @@ admin_conv_handler = ConversationHandler(
         ADMIN_MAIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_handle_main)],
         ADMIN_ADD_COMPANY_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_company_name)],
         ADMIN_ADD_COMPANY_PASS: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_company_pass)],
-        ADMIN_LINK_USER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_link_user_id)],
-        ADMIN_LINK_COMPANY: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_link_company)],
-        ADMIN_UNLINK_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_unlink_user)],
+        ADMIN_ADD_USER_COMPANY: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_user_company)],
+        ADMIN_ADD_USER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_user_name)],
+        ADMIN_ADD_USER_PASS: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_user_pass)],
+        ADMIN_SHOW_USERS_COMPANY: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_show_users_company)],
+        ADMIN_DEL_USER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_del_user_id)],
     },
     fallbacks=[CommandHandler("cancel", cancel)]
 )

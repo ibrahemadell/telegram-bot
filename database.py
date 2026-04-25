@@ -36,13 +36,31 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS bot_users (
-                telegram_id BIGINT PRIMARY KEY,
-                company_id INTEGER REFERENCES companies(id),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+        # Check if we need to migrate bot_users
+        c.execute("SELECT column_name FROM information_schema.columns WHERE table_name='bot_users' AND column_name='password'")
+        if not c.fetchone():
+            c.execute("DROP TABLE IF EXISTS bot_users")
+            c.execute("""
+                CREATE TABLE bot_users (
+                    id SERIAL PRIMARY KEY,
+                    company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,
+                    username TEXT NOT NULL,
+                    password TEXT UNIQUE NOT NULL,
+                    telegram_id BIGINT UNIQUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+        else:
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS bot_users (
+                    id SERIAL PRIMARY KEY,
+                    company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,
+                    username TEXT NOT NULL,
+                    password TEXT UNIQUE NOT NULL,
+                    telegram_id BIGINT UNIQUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
         # === الجداول الموجودة ===
         c.execute("""
@@ -202,30 +220,55 @@ def get_all_companies():
     conn.close()
     return rows
 
-def add_user_to_company(telegram_id, company_id):
+def add_user_account(company_id, username, password):
     conn = get_db()
     c = conn.cursor()
     try:
-        c.execute("""
-            INSERT INTO bot_users (telegram_id, company_id) VALUES (%s, %s)
-            ON CONFLICT (telegram_id) DO UPDATE SET company_id = EXCLUDED.company_id
-        """, (telegram_id, company_id))
+        c.execute("INSERT INTO bot_users (company_id, username, password) VALUES (%s, %s, %s)",
+                  (company_id, username, password))
         conn.commit()
-        conn.close()
         return True
-    except Exception:
+    except (psycopg2.errors.UniqueViolation, psycopg2.IntegrityError):
         conn.rollback()
-        conn.close()
         return False
+    finally:
+        conn.close()
 
-def remove_user_from_company(telegram_id):
+def remove_user_account(telegram_id=None, user_id=None):
     conn = get_db()
     c = conn.cursor()
-    c.execute("DELETE FROM bot_users WHERE telegram_id=%s", (telegram_id,))
+    if telegram_id:
+        c.execute("DELETE FROM bot_users WHERE telegram_id=%s", (telegram_id,))
+    elif user_id:
+        c.execute("DELETE FROM bot_users WHERE id=%s", (user_id,))
     affected = c.rowcount
     conn.commit()
     conn.close()
     return affected > 0
+
+def link_telegram_to_user(password, telegram_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id, telegram_id FROM bot_users WHERE password = %s", (password,))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return "invalid"
+    if row['telegram_id'] and str(row['telegram_id']) != str(telegram_id):
+        conn.close()
+        return "linked"
+    
+    # Check if this telegram_id is already linked to another account
+    c.execute("SELECT id FROM bot_users WHERE telegram_id = %s", (telegram_id,))
+    row2 = c.fetchone()
+    if row2 and row2['id'] != row['id']:
+        conn.close()
+        return "already_has_account"
+
+    c.execute("UPDATE bot_users SET telegram_id = %s WHERE id = %s", (telegram_id, row['id']))
+    conn.commit()
+    conn.close()
+    return "success"
 
 def authenticate_company(company_name, password):
     conn = get_db()
@@ -238,10 +281,10 @@ def authenticate_company(company_name, password):
 def get_company_users(company_id):
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT telegram_id FROM bot_users WHERE company_id=%s", (company_id,))
-    rows = c.fetchall()
+    c.execute("SELECT id, username, password, telegram_id FROM bot_users WHERE company_id=%s", (company_id,))
+    rows = [dict(r) for r in c.fetchall()]
     conn.close()
-    return [r['telegram_id'] for r in rows]
+    return rows
 
 # ============ الخزنة ============
 
