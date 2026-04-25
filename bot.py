@@ -21,8 +21,13 @@ from database import (init_db, add_transaction, add_client, add_supplier,
 import os
 import re
 
+def normalize_text(text):
+    if not text:
+        return text
+    return text.replace('١','1').replace('٢','2').replace('٣','3').replace('٤','4').replace('٥','5').replace('٦','6').replace('٧','7').replace('٨','8').replace('٩','9').replace('٠','0')
+
 def parse_amount(text):
-    text = text.replace('١','1').replace('٢','2').replace('٣','3').replace('٤','4').replace('٥','5').replace('٦','6').replace('٧','7').replace('٨','8').replace('٩','9').replace('٠','0')
+    text = normalize_text(text)
     text = text.replace(',', '.')
     match = re.search(r'[-+]?\d*\.?\d+', text)
     if match:
@@ -74,7 +79,7 @@ async def handle_unlinked_password(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text("اضغط على أحد الأوامر من القائمة عشان تبدأ، مثلاً /3mlaa")
         return ConversationHandler.END
     
-    text = update.message.text
+    text = normalize_text(update.message.text)
     res = link_telegram_to_user(text, telegram_id)
     if res == "success":
         await update.message.reply_text("✅ تم ربط حسابك بنجاح! تقدر دلوقتي تختار الأوامر من القائمة:\n/3mlaa\n/mwrdeen\n/mwzfeen\n/dakhl\n/sarf\n/taqarir\n/eedadat")
@@ -942,7 +947,7 @@ async def admin_add_company_name(update: Update, context: ContextTypes.DEFAULT_T
     return ADMIN_ADD_COMPANY_PASS
 
 async def admin_add_company_pass(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    password = update.message.text
+    password = normalize_text(update.message.text)
     name = context.user_data['new_company_name']
     cid = add_company(name, password)
     if cid:
@@ -967,7 +972,7 @@ async def admin_add_user_name(update: Update, context: ContextTypes.DEFAULT_TYPE
     return ADMIN_ADD_USER_PASS
 
 async def admin_add_user_pass(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    password = update.message.text
+    password = normalize_text(update.message.text)
     company_id = context.user_data['new_user_company_id']
     username = context.user_data['new_user_name']
     
