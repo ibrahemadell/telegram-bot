@@ -246,6 +246,20 @@ def remove_user_account(telegram_id=None, user_id=None):
     conn.close()
     return affected > 0
 
+def update_user_password(user_id, new_password):
+    conn = get_db()
+    c = conn.cursor()
+    try:
+        c.execute("UPDATE bot_users SET password=%s WHERE id=%s", (new_password, user_id))
+        affected = c.rowcount
+        conn.commit()
+        return affected > 0
+    except (psycopg2.errors.UniqueViolation, psycopg2.IntegrityError):
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
 def link_telegram_to_user(password, telegram_id):
     conn = get_db()
     c = conn.cursor()

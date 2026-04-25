@@ -17,7 +17,7 @@ from database import (init_db, add_transaction, add_client, add_supplier,
                    get_person_transactions, generate_pdf_report,
                    get_daily_khazna_report,
                    get_user_company_id, add_company, get_all_companies,
-                   add_user_account, remove_user_account, link_telegram_to_user, get_company_users)
+                   add_user_account, remove_user_account, link_telegram_to_user, get_company_users, update_user_password)
 import os
 import re
 
@@ -892,7 +892,8 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 (ADMIN_MAIN, ADMIN_ADD_COMPANY_NAME, ADMIN_ADD_COMPANY_PASS, 
  ADMIN_ADD_USER_COMPANY, ADMIN_ADD_USER_NAME, ADMIN_ADD_USER_PASS,
- ADMIN_SHOW_USERS_COMPANY, ADMIN_DEL_USER_ID) = range(100, 108)
+ ADMIN_SHOW_USERS_COMPANY, ADMIN_DEL_USER_ID,
+ ADMIN_CHANGE_PASS_ID, ADMIN_CHANGE_PASS_NEW) = range(100, 110)
 
 async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not ADMIN_ID or str(update.effective_user.id) != str(ADMIN_ID):
@@ -900,9 +901,10 @@ async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         ["➕ إضافة شركة", "📋 عرض الشركات"],
         ["➕ إضافة حساب موظف", "📋 عرض موظفين شركة"],
-        ["🗑️ حذف حساب موظف", "❌ إلغاء"]
+        ["🔑 تغيير باسورد موظف", "🗑️ حذف حساب موظف"],
+        ["❌ إلغاء"]
     ]
-    await update.message.reply_text("👑 لوحة تحكم الإدارة:", reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+    await update.message.reply_text("👑 لوحة تحكم الإدارة:", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
     return ADMIN_MAIN
 
 async def admin_handle_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -933,6 +935,9 @@ async def admin_handle_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif choice == "📋 عرض موظفين شركة":
         await update.message.reply_text("🏢 اكتب رقم الشركة اللي عايز تعرض موظفينها:")
         return ADMIN_SHOW_USERS_COMPANY
+    elif choice == "🔑 تغيير باسورد موظف":
+        await update.message.reply_text("🔑 ابعت الـ ID بتاع الحساب اللي عايز تغير الباسورد بتاعه (هتلاقيه في عرض الموظفين):", reply_markup=ReplyKeyboardRemove())
+        return ADMIN_CHANGE_PASS_ID
     elif choice == "🗑️ حذف حساب موظف":
         await update.message.reply_text("🗑️ ابعت الـ ID بتاع الحساب اللي عايز تحذفه (هتلاقيه في عرض الموظفين):", reply_markup=ReplyKeyboardRemove())
         return ADMIN_DEL_USER_ID
@@ -1011,6 +1016,25 @@ async def admin_del_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ اكتب أرقام بس للـ ID:")
         return ADMIN_DEL_USER_ID
 
+async def admin_change_pass_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        user_id = int(update.message.text)
+        context.user_data['change_pass_user_id'] = user_id
+        await update.message.reply_text("🔑 اكتب الباسورد الجديد للموظف ده:")
+        return ADMIN_CHANGE_PASS_NEW
+    except ValueError:
+        await update.message.reply_text("❌ اكتب أرقام بس للـ ID:")
+        return ADMIN_CHANGE_PASS_ID
+
+async def admin_change_pass_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    new_password = normalize_text(update.message.text)
+    user_id = context.user_data['change_pass_user_id']
+    if update_user_password(user_id, new_password):
+        await update.message.reply_text(f"✅ تم تغيير الباسورد بنجاح للحساب رقم {user_id}.\nالباسورد الجديد: `{new_password}`", parse_mode='Markdown')
+    else:
+        await update.message.reply_text("❌ حصلت مشكلة! ممكن الباسورد ده مستخدم قبل كده أو الـ ID غلط.")
+    return ConversationHandler.END
+
 # ============ تشغيل البوت ============
 
 app = ApplicationBuilder().token(TOKEN).build()
@@ -1049,7 +1073,7 @@ conv_handler = ConversationHandler(
 )
 
 admin_conv_handler = ConversationHandler(
-    entry_points=[CommandHandler("admin", admin_menu)],
+    entry_points=[CommandHandler("admin", admin_menu), MessageHandler(filters.Regex("^👑 لوحة الإدارة$"), admin_menu)],
     states={
         ADMIN_MAIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_handle_main)],
         ADMIN_ADD_COMPANY_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_company_name)],
@@ -1059,6 +1083,8 @@ admin_conv_handler = ConversationHandler(
         ADMIN_ADD_USER_PASS: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_user_pass)],
         ADMIN_SHOW_USERS_COMPANY: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_show_users_company)],
         ADMIN_DEL_USER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_del_user_id)],
+        ADMIN_CHANGE_PASS_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_change_pass_id)],
+        ADMIN_CHANGE_PASS_NEW: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_change_pass_new)],
     },
     fallbacks=[CommandHandler("cancel", cancel)]
 )
