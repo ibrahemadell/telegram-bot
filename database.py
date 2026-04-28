@@ -190,6 +190,20 @@ def init_db():
         c.execute("ALTER TABLE bands DROP CONSTRAINT IF EXISTS bands_name_key")
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS bands_name_company_idx ON bands(name, company_id)")
 
+        # === Fix sequences after migrations/imports ===
+        serial_tables = [
+            'companies', 'bot_users', 'user_companies', 'khazna', 'persons',
+            'person_transactions', 'employees', 'employee_transactions',
+            'bands', 'masrof_edari', 'masrof_okhra'
+        ]
+        for t in serial_tables:
+            c.execute(f"SELECT COALESCE(MAX(id), 0) AS max_id FROM {t}")
+            max_id = c.fetchone()['max_id']
+            c.execute(
+                "SELECT setval(pg_get_serial_sequence(%s, 'id'), %s, %s)",
+                (t, max_id if max_id > 0 else 1, max_id > 0)
+            )
+
         conn.commit()
         conn.close()
         print("قاعدة البيانات جاهزة (Multi-Tenant)")
