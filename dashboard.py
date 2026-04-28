@@ -5,7 +5,8 @@ from database import (
     get_weekly_employees_report, get_daily_khazna_report,
     get_db, authenticate_dashboard_user, get_user_companies, user_has_company,
     add_client, add_supplier, add_employee, add_employee_transaction,
-    add_masrof_edari, add_masrof_okhra, add_transaction, get_all_bands
+    add_masrof_edari, add_masrof_okhra, add_transaction, get_all_bands,
+    add_person, add_band
 )
 from datetime import date, timedelta
 from functools import wraps
@@ -257,6 +258,15 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);min-h
 .logo h1{font-size:16px;font-weight:900;}
 .logo span{font-size:11px;color:var(--text3);}
 .nav-group{padding:8px 20px 4px;color:var(--text3);font-size:11px;font-weight:700;}
+.nav-group-btn{
+  width:100%;background:none;border:none;color:var(--text3);text-align:right;
+  font-family:'Cairo',sans-serif;font-size:11px;font-weight:700;cursor:pointer;
+  padding:8px 20px 4px;display:flex;justify-content:space-between;align-items:center;
+}
+.nav-group-btn .arrow{transition:transform 0.2s;}
+.nav-dropdown.open .nav-group-btn .arrow{transform:rotate(180deg);}
+.nav-children{display:none;}
+.nav-dropdown.open .nav-children{display:block;}
 .nav-item{
   display:flex;align-items:center;gap:10px;padding:10px 20px;
   cursor:pointer;color:var(--text2);font-size:13px;font-weight:600;
@@ -518,16 +528,24 @@ tr:hover td{background:rgba(59,130,246,0.04);}
     <span id="last-update">لوحة التحكم</span>
   </div>
   <nav>
-    <div class="nav-group">التقارير</div>
-    <div class="nav-item active" onclick="showPage('overview',this)"><span class="nav-icon">📊</span>نظرة عامة</div>
-    <div class="nav-item" onclick="showPage('clients',this)"><span class="nav-icon">👥</span>تقرير العملاء</div>
-    <div class="nav-item" onclick="showPage('suppliers',this)"><span class="nav-icon">🏭</span>تقرير الموردين</div>
-    <div class="nav-item" onclick="showPage('expenses',this)"><span class="nav-icon">📋</span>تقرير المصروفات</div>
-    <div class="nav-item" onclick="showPage('daily',this)"><span class="nav-icon">📅</span>تقرير يومي</div>
-    <div class="nav-group">الإدخال والتشغيل</div>
-    <div class="nav-item" onclick="showPage('transactions',this)"><span class="nav-icon">🔄</span>الموردين والعملاء</div>
-    <div class="nav-item" onclick="showPage('cash-expenses',this)"><span class="nav-icon">🏦</span>الخزنة والمصروفات</div>
-    <div class="nav-item" onclick="showPage('employees',this)"><span class="nav-icon">👷</span>الموظفين</div>
+    <div class="nav-dropdown open" id="nav-reports">
+      <button class="nav-group-btn" onclick="toggleNavGroup('nav-reports')">التقارير <span class="arrow">⌄</span></button>
+      <div class="nav-children">
+        <div class="nav-item active" onclick="showPage('overview',this)"><span class="nav-icon">📊</span>نظرة عامة</div>
+        <div class="nav-item" onclick="showPage('clients',this)"><span class="nav-icon">👥</span>تقرير العملاء</div>
+        <div class="nav-item" onclick="showPage('suppliers',this)"><span class="nav-icon">🏭</span>تقرير الموردين</div>
+        <div class="nav-item" onclick="showPage('expenses',this)"><span class="nav-icon">📋</span>تقرير المصروفات</div>
+        <div class="nav-item" onclick="showPage('daily',this)"><span class="nav-icon">📅</span>تقرير يومي</div>
+      </div>
+    </div>
+    <div class="nav-dropdown open" id="nav-ops">
+      <button class="nav-group-btn" onclick="toggleNavGroup('nav-ops')">الإدخال والتشغيل <span class="arrow">⌄</span></button>
+      <div class="nav-children">
+        <div class="nav-item" onclick="showPage('transactions',this)"><span class="nav-icon">🔄</span>الموردين والعملاء</div>
+        <div class="nav-item" onclick="showPage('cash-expenses',this)"><span class="nav-icon">🏦</span>الخزنة والمصروفات</div>
+        <div class="nav-item" onclick="showPage('employees',this)"><span class="nav-icon">👷</span>الموظفين</div>
+      </div>
+    </div>
   </nav>
   <div class="sidebar-footer">
     <a href="/select-company" class="btn" style="width:100%; margin-bottom:8px; text-align:center; display:inline-block; text-decoration:none;">تغيير الشركة</a>
@@ -541,7 +559,7 @@ tr:hover td{background:rgba(59,130,246,0.04);}
 <div class="page active" id="page-overview">
   <div class="toolbar">
     <div>
-      <div class="toolbar-title" style="margin-left:10px;">📊 نظرة عامة</div><div class="btn-group" style="margin-right:auto;"><button class="btn" style="background:var(--green);color:white;border:none;" onclick="openModal('modal-khazna-in')">💰 دخل</button><button class="btn" style="background:var(--red);color:white;border:none;" onclick="openModal('modal-khazna-out')">💸 صرف</button></div>
+      <div class="toolbar-title" style="margin-left:10px;">📊 نظرة عامة</div>
       <div class="toolbar-sub" id="overview-period"></div>
     </div>
     <div class="btn-group">
@@ -569,7 +587,7 @@ tr:hover td{background:rgba(59,130,246,0.04);}
 <!-- ===== العملاء ===== -->
 <div class="page" id="page-clients">
   <div class="toolbar">
-    <div><div class="toolbar-title">👥 العملاء</div><button class="btn primary" style="margin-right:auto" onclick="openModal('modal-client')">➕ تسجيل / إضافة</button></div>
+    <div><div class="toolbar-title">👥 العملاء</div></div>
     <div class="btn-group">
       <span class="quick-btn active" onclick="setQuick('clients',30,this)">30 يوم</span>
       <span class="quick-btn" onclick="setQuick('clients',90,this)">3 أشهر</span>
@@ -602,7 +620,7 @@ tr:hover td{background:rgba(59,130,246,0.04);}
 <!-- ===== الموردين ===== -->
 <div class="page" id="page-suppliers">
   <div class="toolbar">
-    <div><div class="toolbar-title">🏭 الموردين</div><button class="btn primary" style="margin-right:auto" onclick="openModal('modal-supplier')">➕ تسجيل / إضافة</button></div>
+    <div><div class="toolbar-title">🏭 الموردين</div></div>
     <div class="btn-group">
       <span class="quick-btn active" onclick="setQuick('suppliers',30,this)">30 يوم</span>
       <span class="quick-btn" onclick="setQuick('suppliers',90,this)">3 أشهر</span>
@@ -646,7 +664,7 @@ tr:hover td{background:rgba(59,130,246,0.04);}
 <!-- ===== المصروفات ===== -->
 <div class="page" id="page-expenses">
   <div class="toolbar">
-    <div><div class="toolbar-title">📋 المصروفات</div><button class="btn primary" style="margin-right:auto" onclick="openModal('modal-exp-edari')">➕ إداري</button><button class="btn" style="background:var(--orange);color:white;border:none;margin-right:8px;" onclick="openModal('modal-exp-okhra')">➕ آخر</button></div>
+    <div><div class="toolbar-title">📋 المصروفات</div></div>
     <div class="btn-group">
       <span class="quick-btn active" onclick="setQuick('expenses',30,this)">30 يوم</span>
       <span class="quick-btn" onclick="setQuick('expenses',90,this)">3 أشهر</span>
@@ -683,36 +701,52 @@ tr:hover td{background:rgba(59,130,246,0.04);}
 <!-- ===== الترانزكشن ===== -->
 <div class="page" id="page-transactions">
   <div class="toolbar">
-    <div><div class="toolbar-title">🔄 الترانزكشن</div><div class="toolbar-sub">اختر نوع الشخص ثم اسمه ونوع الحركة المناسبة</div></div>
+    <div><div class="toolbar-title">🔄 الموردين والعملاء</div><div class="toolbar-sub">إضافة أسماء جديدة وتسجيل الحركات من مكان واحد</div></div>
   </div>
-  <div class="section">
-    <div class="section-header"><span class="section-title">تسجيل حركة عميل / مورد</span></div>
-    <div style="padding:16px;">
-      <div class="form-group">
-        <label>نوع الشخص</label>
-        <select class="form-select" id="tx-person-type" onchange="onTxPersonTypeChange()">
-          <option value="">اختر</option>
-          <option value="client">عميل</option>
-          <option value="supplier">مورد</option>
-        </select>
+  <div class="sections-row">
+    <div class="section">
+      <div class="section-header"><span class="section-title">إضافة عميل / مورد</span></div>
+      <div style="padding:16px;">
+        <div class="form-group">
+          <label>نوع الإضافة</label>
+          <select class="form-select" id="tx-add-type">
+            <option value="client">عميل</option>
+            <option value="supplier">مورد</option>
+          </select>
+        </div>
+        <div class="form-group"><label>الاسم</label><input type="text" id="tx-add-name" class="form-input" placeholder="اكتب الاسم"></div>
+        <button class="modal-btn" onclick="submitAddPersonForm()">إضافة</button>
       </div>
-      <div class="form-group">
-        <label>الاسم</label>
-        <select class="form-select" id="tx-person-name">
-          <option value="">اختر النوع أولا</option>
-        </select>
+    </div>
+    <div class="section">
+      <div class="section-header"><span class="section-title">تسجيل حركة</span></div>
+      <div style="padding:16px;">
+        <div class="form-group">
+          <label>نوع الشخص</label>
+          <select class="form-select" id="tx-person-type" onchange="onTxPersonTypeChange()">
+            <option value="">اختر</option>
+            <option value="client">عميل</option>
+            <option value="supplier">مورد</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>الاسم</label>
+          <select class="form-select" id="tx-person-name">
+            <option value="">اختر النوع أولا</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>نوع الترانزكشن</label>
+          <select class="form-select" id="tx-action">
+            <option value="">اختر النوع أولا</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>المبلغ</label>
+          <input type="number" id="tx-amount" class="form-input" min="0" step="any" placeholder="اكتب المبلغ">
+        </div>
+        <button class="modal-btn" onclick="submitTransactionForm()">تسجيل الترانزكشن</button>
       </div>
-      <div class="form-group">
-        <label>نوع الترانزكشن</label>
-        <select class="form-select" id="tx-action">
-          <option value="">اختر النوع أولا</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>المبلغ</label>
-        <input type="number" id="tx-amount" class="form-input" min="0" step="any" placeholder="اكتب المبلغ">
-      </div>
-      <button class="modal-btn" onclick="submitTransactionForm()">تسجيل الترانزكشن</button>
     </div>
   </div>
 </div>
@@ -739,15 +773,22 @@ tr:hover td{background:rgba(59,130,246,0.04);}
       </div>
     </div>
     <div class="section">
-      <div class="section-header"><span class="section-title">المصروفات</span></div>
+      <div class="section-header"><span class="section-title">المصروفات الإدارية</span></div>
       <div style="padding:16px;">
-        <div class="form-group"><label>بند إداري</label><input type="text" id="edari-band" class="form-input" placeholder="مثال: إيجار"></div>
+        <div class="form-group"><label>بند إداري</label><select id="edari-band-select" class="form-select"><option value="">اختر البند</option></select></div>
         <div class="form-group"><label>مبلغ إداري</label><input type="number" id="edari-amount" class="form-input" min="0" step="any"></div>
         <button class="modal-btn" style="margin-bottom:12px;" onclick="submitEdariForm()">تسجيل مصروف إداري</button>
+        <div class="form-group"><label>إضافة بند جديد</label><input type="text" id="new-band-name" class="form-input" placeholder="اسم البند الجديد"></div>
+        <button class="modal-btn" style="background:var(--purple)" onclick="submitAddBandForm()">إضافة بند</button>
+      </div>
+    </div>
+  </div>
+  <div class="section" style="margin-top:12px;">
+    <div class="section-header"><span class="section-title">المصروفات الأخرى</span></div>
+    <div style="padding:16px;">
         <div class="form-group"><label>مبلغ مصروف آخر</label><input type="number" id="okhra-amount" class="form-input" min="0" step="any"></div>
         <div class="form-group"><label>بيان المصروف الآخر</label><input type="text" id="okhra-note" class="form-input"></div>
         <button class="modal-btn" onclick="submitOkhraForm()">تسجيل مصروف آخر</button>
-      </div>
     </div>
   </div>
 </div>
@@ -855,7 +896,7 @@ tr:hover td{background:rgba(59,130,246,0.04);}
     <button class="modal-close" onclick="closeModal('modal-exp-edari')">&times;</button>
     <div class="modal-title">📌 تسجيل مصروف إداري</div>
     <form onsubmit="submitForm(event, '/api/add_expense_edari', {band:this.band.value, amount:this.amount.value})">
-      <div class="form-group"><label>بند المصروف</label><select name="band" id="edari-band-select" class="form-select" required><option value="">اختر البند</option></select></div>
+      <div class="form-group"><label>بند المصروف</label><select name="band" id="edari-band-modal-select" class="form-select" required><option value="">اختر البند</option></select></div>
       <div class="form-group"><label>المبلغ</label><input type="number" name="amount" class="form-input" required step="any" min="0"></div>
       <button type="submit" class="modal-btn">تسجيل</button>
     </form>
@@ -931,6 +972,10 @@ const COLORS = ['blue','green','yellow','purple','orange','red','cyan'];
 function toggleSidebar() {
   document.getElementById('sidebar').classList.toggle('open');
   document.getElementById('overlay').classList.toggle('show');
+}
+function toggleNavGroup(id){
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle('open');
 }
 
 function showPage(name, el) {
@@ -1032,6 +1077,8 @@ async function onTxPersonTypeChange() {
 }
 
 function initTransactionsPage() {
+  if (!clientsData.length) loadClients();
+  if (!suppliersData.length) loadSuppliers();
   const personType = document.getElementById('tx-person-type').value;
   if (personType) onTxPersonTypeChange();
 }
@@ -1051,6 +1098,25 @@ async function submitTransactionForm() {
   if (result.success) {
     alert('✅ تم تسجيل الترانزكشن');
     document.getElementById('tx-amount').value = '';
+  } else {
+    alert('❌ حدث خطأ: ' + (result.error || 'غير معروف'));
+  }
+}
+
+async function submitAddPersonForm() {
+  const type = document.getElementById('tx-add-type').value;
+  const name = document.getElementById('tx-add-name').value.trim();
+  if (!name) {
+    alert('❌ اكتب الاسم');
+    return;
+  }
+  const endpoint = type === 'client' ? '/api/add_person/client' : '/api/add_person/supplier';
+  const result = await postApi(endpoint, {name});
+  if (result.success) {
+    alert('✅ تمت الإضافة');
+    document.getElementById('tx-add-name').value = '';
+    if (type === 'client') await loadClients();
+    else await loadSuppliers();
   } else {
     alert('❌ حدث خطأ: ' + (result.error || 'غير معروف'));
   }
@@ -1109,6 +1175,22 @@ async function submitOkhraForm() {
   }
 }
 
+async function submitAddBandForm() {
+  const name = document.getElementById('new-band-name').value.trim();
+  if (!name) {
+    alert('❌ اكتب اسم البند');
+    return;
+  }
+  const result = await postApi('/api/add_band', {name});
+  if (result.success) {
+    alert('✅ تم إضافة البند');
+    document.getElementById('new-band-name').value = '';
+    await populateBandSelector();
+  } else {
+    alert('❌ حدث خطأ: ' + (result.error || 'غير معروف'));
+  }
+}
+
 async function populateClientSelector() {
   if (!clientsData.length) await loadClients();
   updateSelectOptions('client-name-select', clientsData.map(c => c.name), 'اختر العميل');
@@ -1129,6 +1211,7 @@ async function populateBandSelector() {
   const bands = await api('bands');
   if (!Array.isArray(bands)) return;
   updateSelectOptions('edari-band-select', bands, bands.length ? 'اختر البند' : 'لا توجد بنود');
+  updateSelectOptions('edari-band-modal-select', bands, bands.length ? 'اختر البند' : 'لا توجد بنود');
 }
 
 function onEmployeeTxTypeChange() {
@@ -1646,6 +1729,41 @@ def api_add_expense_okhra():
         if amount <= 0 or not note:
             return jsonify({'success': False, 'error': 'بيانات غير صحيحة'}), 400
         add_masrof_okhra(amount, note, company_id)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/add_person/<person_kind>', methods=['POST'])
+@login_required
+def api_add_person(person_kind):
+    company_id = session['company_id']
+    data = request.get_json(silent=True) or {}
+    try:
+        name = data.get('name', '').strip()
+        if not name:
+            return jsonify({'success': False, 'error': 'الاسم مطلوب'}), 400
+        person_type = 'عميل' if person_kind == 'client' else 'مورد' if person_kind == 'supplier' else None
+        if not person_type:
+            return jsonify({'success': False, 'error': 'نوع غير صحيح'}), 400
+        ok = add_person(name, person_type, company_id)
+        if not ok:
+            return jsonify({'success': False, 'error': 'الاسم موجود بالفعل'}), 400
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/add_band', methods=['POST'])
+@login_required
+def api_add_band():
+    company_id = session['company_id']
+    data = request.get_json(silent=True) or {}
+    try:
+        name = data.get('name', '').strip()
+        if not name:
+            return jsonify({'success': False, 'error': 'اسم البند مطلوب'}), 400
+        ok = add_band(name, company_id)
+        if not ok:
+            return jsonify({'success': False, 'error': 'البند موجود بالفعل'}), 400
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
