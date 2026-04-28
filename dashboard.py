@@ -250,10 +250,13 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);min-h
   background:var(--surface);border-left:1px solid var(--border);
   padding:20px 0;z-index:200;display:flex;flex-direction:column;
   transition:transform 0.3s;
+  transform:translateX(100%);
 }
+.sidebar.open{transform:translateX(0);}
 .logo{padding:0 20px 20px;border-bottom:1px solid var(--border);margin-bottom:12px;}
 .logo h1{font-size:16px;font-weight:900;}
 .logo span{font-size:11px;color:var(--text3);}
+.nav-group{padding:8px 20px 4px;color:var(--text3);font-size:11px;font-weight:700;}
 .nav-item{
   display:flex;align-items:center;gap:10px;padding:10px 20px;
   cursor:pointer;color:var(--text2);font-size:13px;font-weight:600;
@@ -267,14 +270,15 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);min-h
 
 /* Mobile toggle */
 .mobile-toggle{
-  display:none;position:fixed;top:12px;right:12px;z-index:300;
+  display:flex;align-items:center;justify-content:center;
+  position:fixed;top:12px;right:12px;z-index:300;
   background:var(--accent);border:none;color:white;
   width:40px;height:40px;border-radius:8px;font-size:18px;cursor:pointer;
 }
 .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:150;}
 
 /* ===== Main ===== */
-.main{margin-right:var(--sidebar-w);padding:24px 28px;min-height:100vh;}
+.main{margin-right:0;padding:24px 28px;min-height:100vh;}
 .page{display:none;animation:fadeIn 0.3s ease;}
 .page.active{display:block;}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
@@ -488,9 +492,7 @@ tr:hover td{background:rgba(59,130,246,0.04);}
   .sections-row{grid-template-columns:1fr;}
 }
 @media(max-width:768px){
-  .sidebar{transform:translateX(100%);width:260px;}
-  .sidebar.open{transform:translateX(0);}
-  .mobile-toggle{display:flex;align-items:center;justify-content:center;}
+  .sidebar{width:260px;}
   .overlay.show{display:block;}
   .main{margin-right:0;padding:16px;padding-top:60px;}
   .cards-grid{grid-template-columns:repeat(2,1fr);gap:10px;}
@@ -516,12 +518,16 @@ tr:hover td{background:rgba(59,130,246,0.04);}
     <span id="last-update">لوحة التحكم</span>
   </div>
   <nav>
+    <div class="nav-group">التقارير</div>
     <div class="nav-item active" onclick="showPage('overview',this)"><span class="nav-icon">📊</span>نظرة عامة</div>
-    <div class="nav-item" onclick="showPage('clients',this)"><span class="nav-icon">👥</span>العملاء</div>
-    <div class="nav-item" onclick="showPage('suppliers',this)"><span class="nav-icon">🏭</span>الموردين</div>
+    <div class="nav-item" onclick="showPage('clients',this)"><span class="nav-icon">👥</span>تقرير العملاء</div>
+    <div class="nav-item" onclick="showPage('suppliers',this)"><span class="nav-icon">🏭</span>تقرير الموردين</div>
+    <div class="nav-item" onclick="showPage('expenses',this)"><span class="nav-icon">📋</span>تقرير المصروفات</div>
+    <div class="nav-item" onclick="showPage('daily',this)"><span class="nav-icon">📅</span>تقرير يومي</div>
+    <div class="nav-group">الإدخال والتشغيل</div>
+    <div class="nav-item" onclick="showPage('transactions',this)"><span class="nav-icon">🔄</span>الترانزكشن</div>
+    <div class="nav-item" onclick="showPage('cash-expenses',this)"><span class="nav-icon">🏦</span>الخزنة والمصروفات</div>
     <div class="nav-item" onclick="showPage('employees',this)"><span class="nav-icon">👷</span>الموظفين</div>
-    <div class="nav-item" onclick="showPage('expenses',this)"><span class="nav-icon">📋</span>المصروفات</div>
-    <div class="nav-item" onclick="showPage('daily',this)"><span class="nav-icon">📅</span>التقرير اليومي</div>
   </nav>
   <div class="sidebar-footer">
     <a href="/select-company" class="btn" style="width:100%; margin-bottom:8px; text-align:center; display:inline-block; text-decoration:none;">تغيير الشركة</a>
@@ -671,6 +677,78 @@ tr:hover td{background:rgba(59,130,246,0.04);}
   <div class="section">
     <div class="day-selector" id="day-selector"></div>
     <div id="daily-content"><div class="empty">اختار يوم</div></div>
+  </div>
+</div>
+
+<!-- ===== الترانزكشن ===== -->
+<div class="page" id="page-transactions">
+  <div class="toolbar">
+    <div><div class="toolbar-title">🔄 الترانزكشن</div><div class="toolbar-sub">اختر نوع الشخص ثم اسمه ونوع الحركة المناسبة</div></div>
+  </div>
+  <div class="section">
+    <div class="section-header"><span class="section-title">تسجيل حركة عميل / مورد</span></div>
+    <div style="padding:16px;">
+      <div class="form-group">
+        <label>نوع الشخص</label>
+        <select class="form-select" id="tx-person-type" onchange="onTxPersonTypeChange()">
+          <option value="">اختر</option>
+          <option value="client">عميل</option>
+          <option value="supplier">مورد</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>الاسم</label>
+        <select class="form-select" id="tx-person-name">
+          <option value="">اختر النوع أولا</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>نوع الترانزكشن</label>
+        <select class="form-select" id="tx-action">
+          <option value="">اختر النوع أولا</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>المبلغ</label>
+        <input type="number" id="tx-amount" class="form-input" min="0" step="any" placeholder="اكتب المبلغ">
+      </div>
+      <button class="modal-btn" onclick="submitTransactionForm()">تسجيل الترانزكشن</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== الخزنة والمصروفات ===== -->
+<div class="page" id="page-cash-expenses">
+  <div class="toolbar">
+    <div><div class="toolbar-title">🏦 الخزنة والمصروفات</div><div class="toolbar-sub">تسجيل دخل/صرف وخانات المصروفات في مكان واحد</div></div>
+  </div>
+  <div class="sections-row">
+    <div class="section">
+      <div class="section-header"><span class="section-title">حركة خزنة</span></div>
+      <div style="padding:16px;">
+        <div class="form-group">
+          <label>النوع</label>
+          <select class="form-select" id="cash-type">
+            <option value="دخل">دخل</option>
+            <option value="صرف">صرف</option>
+          </select>
+        </div>
+        <div class="form-group"><label>المبلغ</label><input type="number" id="cash-amount" class="form-input" min="0" step="any"></div>
+        <div class="form-group"><label>الوصف</label><input type="text" id="cash-desc" class="form-input"></div>
+        <button class="modal-btn" onclick="submitCashForm()">تسجيل حركة خزنة</button>
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-header"><span class="section-title">المصروفات</span></div>
+      <div style="padding:16px;">
+        <div class="form-group"><label>بند إداري</label><input type="text" id="edari-band" class="form-input" placeholder="مثال: إيجار"></div>
+        <div class="form-group"><label>مبلغ إداري</label><input type="number" id="edari-amount" class="form-input" min="0" step="any"></div>
+        <button class="modal-btn" style="margin-bottom:12px;" onclick="submitEdariForm()">تسجيل مصروف إداري</button>
+        <div class="form-group"><label>مبلغ مصروف آخر</label><input type="number" id="okhra-amount" class="form-input" min="0" step="any"></div>
+        <div class="form-group"><label>بيان المصروف الآخر</label><input type="text" id="okhra-note" class="form-input"></div>
+        <button class="modal-btn" onclick="submitOkhraForm()">تسجيل مصروف آخر</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -868,6 +946,7 @@ function showPage(name, el) {
   else if(name==='employees') loadEmployees();
   else if(name==='expenses') loadExpenses();
   else if(name==='daily') initDaily();
+  else if(name==='transactions') initTransactionsPage();
 }
 
 function setQuick(page, days, el) {
@@ -887,6 +966,146 @@ async function api(url) {
     return {};
   }
   return res.json();
+}
+
+async function postApi(endpoint, data) {
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(data)
+  });
+  if (res.status === 401) {
+    window.location.href = '/login';
+    return {success:false, error:'Unauthorized'};
+  }
+  return res.json();
+}
+
+// ===== Transactions Page =====
+function getTxActions(personType) {
+  if (personType === 'client') {
+    return [
+      {value: 'دين', label: 'دين على العميل'},
+      {value: 'دفع', label: 'استلام فلوس (دفع)'},
+      {value: 'خصم', label: 'خصم من الرصيد'}
+    ];
+  }
+  if (personType === 'supplier') {
+    return [
+      {value: 'مديونية', label: 'مديونية للمورد'},
+      {value: 'دفع', label: 'دفع للمورد'}
+    ];
+  }
+  return [];
+}
+
+async function onTxPersonTypeChange() {
+  const personType = document.getElementById('tx-person-type').value;
+  const personSelect = document.getElementById('tx-person-name');
+  const actionSelect = document.getElementById('tx-action');
+  personSelect.innerHTML = '<option value="">جاري التحميل...</option>';
+  actionSelect.innerHTML = '<option value="">اختر الحركة</option>';
+
+  const actions = getTxActions(personType);
+  actions.forEach(a => {
+    actionSelect.innerHTML += `<option value="${a.value}">${a.label}</option>`;
+  });
+
+  if (!personType) {
+    personSelect.innerHTML = '<option value="">اختر النوع أولا</option>';
+    return;
+  }
+  const data = await api(personType === 'client' ? 'clients' : 'suppliers');
+  if (!Array.isArray(data)) {
+    personSelect.innerHTML = '<option value="">فشل التحميل</option>';
+    return;
+  }
+  if (!data.length) {
+    personSelect.innerHTML = '<option value="">لا يوجد أسماء</option>';
+    return;
+  }
+  personSelect.innerHTML = '<option value="">اختر الاسم</option>';
+  data.forEach(item => {
+    personSelect.innerHTML += `<option value="${item.name}">${item.name}</option>`;
+  });
+}
+
+function initTransactionsPage() {
+  if (!document.getElementById('tx-person-type').value) return;
+  onTxPersonTypeChange();
+}
+
+async function submitTransactionForm() {
+  const personType = document.getElementById('tx-person-type').value;
+  const name = document.getElementById('tx-person-name').value;
+  const transType = document.getElementById('tx-action').value;
+  const amount = parseFloat(document.getElementById('tx-amount').value || '0');
+  if (!personType || !name || !transType || !(amount > 0)) {
+    alert('❌ اكمل كل البيانات بشكل صحيح');
+    return;
+  }
+
+  const endpoint = personType === 'client' ? '/api/add_client' : '/api/add_supplier';
+  const result = await postApi(endpoint, {name, amount, trans_type: transType});
+  if (result.success) {
+    alert('✅ تم تسجيل الترانزكشن');
+    document.getElementById('tx-amount').value = '';
+  } else {
+    alert('❌ حدث خطأ: ' + (result.error || 'غير معروف'));
+  }
+}
+
+// ===== Cash & Expenses Page =====
+async function submitCashForm() {
+  const trans_type = document.getElementById('cash-type').value;
+  const amount = parseFloat(document.getElementById('cash-amount').value || '0');
+  const description = document.getElementById('cash-desc').value.trim();
+  if (!(amount > 0) || !description) {
+    alert('❌ اكتب المبلغ والوصف');
+    return;
+  }
+  const result = await postApi('/api/add_khazna', {trans_type, amount, description});
+  if (result.success) {
+    alert('✅ تم تسجيل حركة الخزنة');
+    document.getElementById('cash-amount').value = '';
+    document.getElementById('cash-desc').value = '';
+  } else {
+    alert('❌ حدث خطأ');
+  }
+}
+
+async function submitEdariForm() {
+  const band = document.getElementById('edari-band').value.trim();
+  const amount = parseFloat(document.getElementById('edari-amount').value || '0');
+  if (!band || !(amount > 0)) {
+    alert('❌ اكتب البند والمبلغ');
+    return;
+  }
+  const result = await postApi('/api/add_expense_edari', {band, amount});
+  if (result.success) {
+    alert('✅ تم تسجيل المصروف الإداري');
+    document.getElementById('edari-band').value = '';
+    document.getElementById('edari-amount').value = '';
+  } else {
+    alert('❌ حدث خطأ');
+  }
+}
+
+async function submitOkhraForm() {
+  const amount = parseFloat(document.getElementById('okhra-amount').value || '0');
+  const note = document.getElementById('okhra-note').value.trim();
+  if (!(amount > 0) || !note) {
+    alert('❌ اكتب المبلغ والبيان');
+    return;
+  }
+  const result = await postApi('/api/add_expense_okhra', {amount, note});
+  if (result.success) {
+    alert('✅ تم تسجيل مصروف آخر');
+    document.getElementById('okhra-amount').value = '';
+    document.getElementById('okhra-note').value = '';
+  } else {
+    alert('❌ حدث خطأ');
+  }
 }
 
 // ===== Overview =====
