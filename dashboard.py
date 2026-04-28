@@ -525,7 +525,7 @@ tr:hover td{background:rgba(59,130,246,0.04);}
     <div class="nav-item" onclick="showPage('expenses',this)"><span class="nav-icon">📋</span>تقرير المصروفات</div>
     <div class="nav-item" onclick="showPage('daily',this)"><span class="nav-icon">📅</span>تقرير يومي</div>
     <div class="nav-group">الإدخال والتشغيل</div>
-    <div class="nav-item" onclick="showPage('transactions',this)"><span class="nav-icon">🔄</span>الترانزكشن</div>
+    <div class="nav-item" onclick="showPage('transactions',this)"><span class="nav-icon">🔄</span>الموردين والعملاء</div>
     <div class="nav-item" onclick="showPage('cash-expenses',this)"><span class="nav-icon">🏦</span>الخزنة والمصروفات</div>
     <div class="nav-item" onclick="showPage('employees',this)"><span class="nav-icon">👷</span>الموظفين</div>
   </nav>
@@ -781,9 +781,9 @@ tr:hover td{background:rgba(59,130,246,0.04);}
 <div class="modal-overlay" id="modal-client" onclick="if(event.target==this) closeModal('modal-client')">
   <div class="modal-content">
     <button class="modal-close" onclick="closeModal('modal-client')">&times;</button>
-    <div class="modal-title">👥 عميل جديد / حركة</div>
+    <div class="modal-title">👥 حركة عميل</div>
     <form onsubmit="submitForm(event, '/api/add_client', {name:this.cname.value, amount:this.amount.value||0, trans_type:this.type.value})">
-      <div class="form-group"><label>اسم العميل</label><input type="text" name="cname" class="form-input" required list="clients-list" autocomplete="off"></div>
+      <div class="form-group"><label>اسم العميل</label><select name="cname" id="client-name-select" class="form-select" required><option value="">اختر العميل</option></select></div>
       <div class="form-group"><label>المبلغ (اختياري)</label><input type="number" name="amount" class="form-input" step="any" min="0"></div>
       <div class="form-group">
         <label>نوع الحركة</label>
@@ -800,9 +800,9 @@ tr:hover td{background:rgba(59,130,246,0.04);}
 <div class="modal-overlay" id="modal-supplier" onclick="if(event.target==this) closeModal('modal-supplier')">
   <div class="modal-content">
     <button class="modal-close" onclick="closeModal('modal-supplier')">&times;</button>
-    <div class="modal-title">🏭 مورد جديد / حركة</div>
+    <div class="modal-title">🏭 حركة مورد</div>
     <form onsubmit="submitForm(event, '/api/add_supplier', {name:this.sname.value, amount:this.amount.value||0, trans_type:this.type.value})">
-      <div class="form-group"><label>اسم المورد</label><input type="text" name="sname" class="form-input" required list="suppliers-list" autocomplete="off"></div>
+      <div class="form-group"><label>اسم المورد</label><select name="sname" id="supplier-name-select" class="form-select" required><option value="">اختر المورد</option></select></div>
       <div class="form-group"><label>المبلغ (اختياري)</label><input type="number" name="amount" class="form-input" step="any" min="0"></div>
       <div class="form-group">
         <label>نوع الحركة</label>
@@ -815,11 +815,6 @@ tr:hover td{background:rgba(59,130,246,0.04);}
     </form>
   </div>
 </div>
-
-<datalist id="clients-list"></datalist>
-<datalist id="suppliers-list"></datalist>
-<datalist id="employees-list"></datalist>
-<datalist id="bands-list"></datalist>
 
 <div class="modal-overlay" id="modal-emp" onclick="if(event.target==this) closeModal('modal-emp')">
   <div class="modal-content">
@@ -837,13 +832,13 @@ tr:hover td{background:rgba(59,130,246,0.04);}
   <div class="modal-content">
     <button class="modal-close" onclick="closeModal('modal-emp-tx')">&times;</button>
     <div class="modal-title">💵 تسجيل معاملة موظف</div>
-    <form onsubmit="submitForm(event, '/api/add_employee_tx', {name:this.ename.value, trans_type:this.type.value, amount:this.amount.value, note:this.note.value})">
-      <div class="form-group"><label>اسم الموظف</label><input type="text" name="ename" class="form-input" required list="employees-list" autocomplete="off"></div>
-      <div class="form-group"><label>المبلغ</label><input type="number" name="amount" class="form-input" required step="any" min="0"></div>
+    <form onsubmit="submitEmployeeTxForm(event)">
+      <div class="form-group"><label>اسم الموظف</label><select name="ename" id="emp-tx-name" class="form-select" required onchange="onEmployeeTxTypeChange()"><option value="">اختر الموظف</option></select></div>
+      <div class="form-group"><label>المبلغ</label><input type="number" id="emp-tx-amount" name="amount" class="form-input" required step="any" min="0"></div>
       <div class="form-group">
         <label>نوع الحركة</label>
-        <select name="type" class="form-select">
-          <option value="صرف راتب">صرف راتب</option>
+        <select name="type" id="emp-tx-type" class="form-select" onchange="onEmployeeTxTypeChange()">
+          <option value="مرتب">صرف مرتب (تلقائي)</option>
           <option value="سلفة">سلفة</option>
           <option value="خصم">خصم</option>
           <option value="مكافأة">مكافأة</option>
@@ -860,7 +855,7 @@ tr:hover td{background:rgba(59,130,246,0.04);}
     <button class="modal-close" onclick="closeModal('modal-exp-edari')">&times;</button>
     <div class="modal-title">📌 تسجيل مصروف إداري</div>
     <form onsubmit="submitForm(event, '/api/add_expense_edari', {band:this.band.value, amount:this.amount.value})">
-      <div class="form-group"><label>بند المصروف</label><input type="text" name="band" class="form-input" required list="bands-list" autocomplete="off"></div>
+      <div class="form-group"><label>بند المصروف</label><select name="band" id="edari-band-select" class="form-select" required><option value="">اختر البند</option></select></div>
       <div class="form-group"><label>المبلغ</label><input type="number" name="amount" class="form-input" required step="any" min="0"></div>
       <button type="submit" class="modal-btn">تسجيل</button>
     </form>
@@ -884,7 +879,13 @@ tr:hover td{background:rgba(59,130,246,0.04);}
 
 <script>
 // ===== Modals Logic =====
-function openModal(id) { document.getElementById(id).classList.add('active'); }
+async function openModal(id) {
+  document.getElementById(id).classList.add('active');
+  if (id === 'modal-client') await populateClientSelector();
+  else if (id === 'modal-supplier') await populateSupplierSelector();
+  else if (id === 'modal-emp-tx') await populateEmployeeSelector();
+  else if (id === 'modal-exp-edari') await populateBandSelector();
+}
 function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 async function submitForm(e, endpoint, data) {
   e.preventDefault();
@@ -914,10 +915,10 @@ async function submitForm(e, endpoint, data) {
   btn.innerHTML = oldText;
   btn.disabled = false;
 }
-function updateDatalist(id, list) {
-  const dl = document.getElementById(id);
-  if(!dl) return;
-  dl.innerHTML = list.map(item => `<option value="${item}">`).join('');
+function updateSelectOptions(id, list, placeholder='اختر') {
+  const select = document.getElementById(id);
+  if(!select) return;
+  select.innerHTML = `<option value="">${placeholder}</option>` + list.map(item => `<option value="${item}">${item}</option>`).join('');
 }
 
 // ===== Globals =====
@@ -1031,8 +1032,8 @@ async function onTxPersonTypeChange() {
 }
 
 function initTransactionsPage() {
-  if (!document.getElementById('tx-person-type').value) return;
-  onTxPersonTypeChange();
+  const personType = document.getElementById('tx-person-type').value;
+  if (personType) onTxPersonTypeChange();
 }
 
 async function submitTransactionForm() {
@@ -1075,7 +1076,7 @@ async function submitCashForm() {
 }
 
 async function submitEdariForm() {
-  const band = document.getElementById('edari-band').value.trim();
+  const band = document.getElementById('edari-band-select').value;
   const amount = parseFloat(document.getElementById('edari-amount').value || '0');
   if (!band || !(amount > 0)) {
     alert('❌ اكتب البند والمبلغ');
@@ -1084,7 +1085,7 @@ async function submitEdariForm() {
   const result = await postApi('/api/add_expense_edari', {band, amount});
   if (result.success) {
     alert('✅ تم تسجيل المصروف الإداري');
-    document.getElementById('edari-band').value = '';
+    document.getElementById('edari-band-select').value = '';
     document.getElementById('edari-amount').value = '';
   } else {
     alert('❌ حدث خطأ');
@@ -1105,6 +1106,78 @@ async function submitOkhraForm() {
     document.getElementById('okhra-note').value = '';
   } else {
     alert('❌ حدث خطأ');
+  }
+}
+
+async function populateClientSelector() {
+  if (!clientsData.length) await loadClients();
+  updateSelectOptions('client-name-select', clientsData.map(c => c.name), 'اختر العميل');
+}
+
+async function populateSupplierSelector() {
+  if (!suppliersData.length) await loadSuppliers();
+  updateSelectOptions('supplier-name-select', suppliersData.map(s => s.name), 'اختر المورد');
+}
+
+async function populateEmployeeSelector() {
+  if (!empData.length) await loadEmployees();
+  updateSelectOptions('emp-tx-name', empData.map(e => e.name), 'اختر الموظف');
+  onEmployeeTxTypeChange();
+}
+
+async function populateBandSelector() {
+  const bands = await api('bands');
+  if (!Array.isArray(bands)) return;
+  updateSelectOptions('edari-band-select', bands, bands.length ? 'اختر البند' : 'لا توجد بنود');
+}
+
+function onEmployeeTxTypeChange() {
+  const type = document.getElementById('emp-tx-type')?.value;
+  const name = document.getElementById('emp-tx-name')?.value;
+  const amountInput = document.getElementById('emp-tx-amount');
+  if (!amountInput) return;
+
+  if (type === 'مرتب') {
+    const emp = empData.find(e => e.name === name);
+    const net = emp && emp.data ? Number(emp.data.net || 0) : 0;
+    amountInput.value = net > 0 ? net : 0;
+    amountInput.readOnly = true;
+  } else {
+    amountInput.readOnly = false;
+    if (Number(amountInput.value) <= 0) amountInput.value = '';
+  }
+}
+
+async function submitEmployeeTxForm(e) {
+  e.preventDefault();
+  const form = e.target;
+  const btn = form.querySelector('button[type="submit"]');
+  const oldText = btn.innerHTML;
+  btn.innerHTML = '<span class="spinner" style="margin:0"></span>';
+  btn.disabled = true;
+  try {
+    const name = document.getElementById('emp-tx-name').value;
+    const trans_type = document.getElementById('emp-tx-type').value;
+    const amount = parseFloat(document.getElementById('emp-tx-amount').value || '0');
+    const note = form.note.value || '';
+    if (!name || !(amount > 0)) {
+      alert('❌ اختار الموظف واكتب مبلغ صحيح');
+      return;
+    }
+    const result = await postApi('/api/add_employee_tx', {name, trans_type, amount, note});
+    if (result.success) {
+      closeModal('modal-emp-tx');
+      form.reset();
+      const activePage = document.querySelector('.page.active').id.replace('page-','');
+      showPage(activePage);
+    } else {
+      alert('❌ حدث خطأ: ' + (result.error || 'غير معروف'));
+    }
+  } catch (err) {
+    alert('❌ فشل الاتصال بالخادم');
+  } finally {
+    btn.innerHTML = oldText;
+    btn.disabled = false;
   }
 }
 
@@ -1169,7 +1242,6 @@ async function loadClients() {
   if(!data || data.error) return;
   clientsData = data;
   renderClientsTable(data);
-  updateDatalist("clients-list", data.map(c=>c.name));
 }
 
 function renderClientsTable(data) {
@@ -1213,7 +1285,6 @@ async function loadSuppliers() {
   if(!data || data.error) return;
   suppliersData = data;
   renderSuppliersTable(data);
-  updateDatalist("suppliers-list", data.map(s=>s.name));
 }
 
 function renderSuppliersTable(data) {
@@ -1252,7 +1323,6 @@ async function loadEmployees() {
   if(!data || data.error) return;
   empData = data;
   renderEmpTable(data);
-  updateDatalist("employees-list", data.map(e=>e.name));
 }
 
 function renderEmpTable(data) {
@@ -1463,6 +1533,129 @@ def api_overview():
             'salary_due': salary_due,
         }
         return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/add_khazna', methods=['POST'])
+@login_required
+def api_add_khazna():
+    company_id = session['company_id']
+    data = request.get_json(silent=True) or {}
+    try:
+        trans_type = data.get('trans_type')
+        amount = float(data.get('amount', 0))
+        description = data.get('description', '').strip()
+        if trans_type not in ('دخل', 'صرف') or amount <= 0 or not description:
+            return jsonify({'success': False, 'error': 'بيانات غير صحيحة'}), 400
+        add_transaction(trans_type, amount, description, company_id)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/add_client', methods=['POST'])
+@login_required
+def api_add_client():
+    company_id = session['company_id']
+    data = request.get_json(silent=True) or {}
+    try:
+        name = data.get('name', '').strip()
+        trans_type = data.get('trans_type')
+        amount = float(data.get('amount', 0))
+        if not name or trans_type not in ('دين', 'دفع', 'خصم') or amount <= 0:
+            return jsonify({'success': False, 'error': 'بيانات غير صحيحة'}), 400
+        add_client(name, amount, trans_type, company_id)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/add_supplier', methods=['POST'])
+@login_required
+def api_add_supplier():
+    company_id = session['company_id']
+    data = request.get_json(silent=True) or {}
+    try:
+        name = data.get('name', '').strip()
+        trans_type = data.get('trans_type')
+        amount = float(data.get('amount', 0))
+        if not name or trans_type not in ('مديونية', 'دين', 'دفع') or amount <= 0:
+            return jsonify({'success': False, 'error': 'بيانات غير صحيحة'}), 400
+        if trans_type == 'دين':
+            trans_type = 'مديونية'
+        add_supplier(name, amount, trans_type, company_id)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/add_employee', methods=['POST'])
+@login_required
+def api_add_employee():
+    company_id = session['company_id']
+    data = request.get_json(silent=True) or {}
+    try:
+        name = data.get('name', '').strip()
+        salary = float(data.get('salary', 0))
+        if not name or salary <= 0:
+            return jsonify({'success': False, 'error': 'بيانات غير صحيحة'}), 400
+        ok = add_employee(name, salary, company_id)
+        if not ok:
+            return jsonify({'success': False, 'error': 'الموظف موجود بالفعل'}), 400
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/add_employee_tx', methods=['POST'])
+@login_required
+def api_add_employee_tx():
+    company_id = session['company_id']
+    data = request.get_json(silent=True) or {}
+    try:
+        name = data.get('name', '').strip()
+        trans_type = data.get('trans_type')
+        amount = float(data.get('amount', 0))
+        note = data.get('note', '').strip()
+        if not name or trans_type not in ('مرتب', 'سلفة', 'خصم', 'مكافأة') or amount <= 0:
+            return jsonify({'success': False, 'error': 'بيانات غير صحيحة'}), 400
+        add_employee_transaction(name, trans_type, amount, company_id, note)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/add_expense_edari', methods=['POST'])
+@login_required
+def api_add_expense_edari():
+    company_id = session['company_id']
+    data = request.get_json(silent=True) or {}
+    try:
+        band = data.get('band', '').strip()
+        amount = float(data.get('amount', 0))
+        if not band or amount <= 0:
+            return jsonify({'success': False, 'error': 'بيانات غير صحيحة'}), 400
+        add_masrof_edari(band, amount, company_id)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/add_expense_okhra', methods=['POST'])
+@login_required
+def api_add_expense_okhra():
+    company_id = session['company_id']
+    data = request.get_json(silent=True) or {}
+    try:
+        amount = float(data.get('amount', 0))
+        note = data.get('note', '').strip()
+        if amount <= 0 or not note:
+            return jsonify({'success': False, 'error': 'بيانات غير صحيحة'}), 400
+        add_masrof_okhra(amount, note, company_id)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/bands')
+@login_required
+def api_bands():
+    company_id = session['company_id']
+    try:
+        return jsonify(get_all_bands(company_id))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
