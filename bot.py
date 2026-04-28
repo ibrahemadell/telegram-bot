@@ -16,7 +16,7 @@ from database import (init_db, add_transaction, add_client, add_supplier,
                    get_weekly_employees_report, get_monthly_khazna_report,
                    get_person_transactions, generate_pdf_report,
                    get_daily_khazna_report,
-                   get_user_company_id, add_company, get_all_companies,
+                   get_user_company_id, get_user_companies_by_telegram, add_company, get_all_companies,
                    add_user_account, remove_user_account, link_telegram_to_user, get_company_users, update_user_password)
 import os
 import re
@@ -55,34 +55,94 @@ init_db()
 
 async def check_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int | None:
     telegram_id = update.effective_user.id
-    company_id = get_user_company_id(telegram_id)
-    if not company_id:
+    companies = get_user_companies_by_telegram(telegram_id)
+    if not companies:
         if str(telegram_id) != str(ADMIN_ID):
             await update.message.reply_text("🚫 حسابك مش مربوط بأي شركة. ابعت كلمة المرور (الباسورد) اللي خدتها من الإدارة عشان يتفعل:", reply_markup=ReplyKeyboardRemove())
         return None
-    context.user_data['company_id'] = company_id
-    return company_id
+
+    current_company_id = context.user_data.get('company_id')
+    allowed_ids = {c['id'] for c in companies}
+    if current_company_id in allowed_ids:
+        return current_company_id
+
+    if len(companies) == 1:
+        context.user_data['company_id'] = companies[0]['id']
+        context.user_data['company_name'] = companies[0]['name']
+        return companies[0]['id']
+
+    await ask_user_to_select_company(update, context, companies)
+    return None
+
+async def ask_user_to_select_company(update: Update, context: ContextTypes.DEFAULT_TYPE, companies):
+    context.user_data['awaiting_company_selection'] = True
+    context.user_data['company_options'] = {c['name']: c['id'] for c in companies}
+    keyboard = [[c['name']] for c in companies]
+    await update.message.reply_text(
+        "🏢 عندك أكتر من شركة. اختار الشركة اللي هتشتغل عليها:",
+        reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    )
+
+async def select_company_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    telegram_id = update.effective_user.id
+    companies = get_user_companies_by_telegram(telegram_id)
+    if not companies:
+        await update.message.reply_text("🚫 حسابك مش مربوط بأي شركة. ابعت الباسورد هنا عشان الربط.", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+    if len(companies) == 1:
+        context.user_data['company_id'] = companies[0]['id']
+        context.user_data['company_name'] = companies[0]['name']
+        await update.message.reply_text(f"✅ شركتك الحالية: {companies[0]['name']}", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+    await ask_user_to_select_company(update, context, companies)
+    return ConversationHandler.END
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
     if str(telegram_id) == str(ADMIN_ID):
         await update.message.reply_text("👑 أهلاً بيك يا أدمن! استخدم /admin لفتح لوحة التحكم.")
-    company_id = get_user_company_id(telegram_id)
-    if company_id:
-        await update.message.reply_text("👋 أهلاً بيك! حسابك متسجل وجاهز.\nاضغط على الأوامر عشان تبدأ:\n/3mlaa - العملاء\n/mwrdeen - الموردين\n/mwzfeen - الموظفين\n/dakhl - الدخل\n/sarf - الصرف\n/taqarir - التقارير\n/eedadat - الإعدادات")
+    companies = get_user_companies_by_telegram(telegram_id)
+    if companies:
+        if len(companies) == 1:
+            context.user_data['company_id'] = companies[0]['id']
+            context.user_data['company_name'] = companies[0]['name']
+            await update.message.reply_text("👋 أهلاً بيك! حسابك متسجل وجاهز.\nاضغط على الأوامر عشان تبدأ:\n/3mlaa - العملاء\n/mwrdeen - الموردين\n/mwzfeen - الموظفين\n/dakhl - الدخل\n/sarf - الصرف\n/taqarir - التقارير\n/eedadat - الإعدادات\n/company - تغيير الشركة")
+        else:
+            await ask_user_to_select_company(update, context, companies)
     else:
         await update.message.reply_text("🚫 حسابك مش مربوط. ابعت كلمة المرور (الباسورد) اللي خدتها من الإدارة هنا:")
 
 async def handle_unlinked_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
-    if get_user_company_id(telegram_id):
-        await update.message.reply_text("اضغط على أحد الأوامر من القائمة عشان تبدأ، مثلاً /3mlaa")
-        return ConversationHandler.END
-    
     text = normalize_text(update.message.text)
+
+    if context.user_data.get('awaiting_company_selection'):
+        options = context.user_data.get('company_options', {})
+        company_id = options.get(text)
+        if not company_id:
+            await update.message.reply_text("❌ اختيار غير صحيح. اختار شركة من الأزرار المعروضة.")
+            return ConversationHandler.END
+        context.user_data['company_id'] = company_id
+        context.user_data['company_name'] = text
+        context.user_data['awaiting_company_selection'] = False
+        context.user_data.pop('company_options', None)
+        await update.message.reply_text(f"✅ تم اختيار الشركة: {text}\nتقدر تبدأ بالأوامر دلوقتي. مثال: /3mlaa", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+
+    if get_user_company_id(telegram_id):
+        await update.message.reply_text("اضغط على أحد الأوامر من القائمة عشان تبدأ، مثلاً /3mlaa\nولو عايز تغيّر الشركة استخدم /company")
+        return ConversationHandler.END
+
     res = link_telegram_to_user(text, telegram_id)
     if res == "success":
-        await update.message.reply_text("✅ تم ربط حسابك بنجاح! تقدر دلوقتي تختار الأوامر من القائمة:\n/3mlaa\n/mwrdeen\n/mwzfeen\n/dakhl\n/sarf\n/taqarir\n/eedadat")
+        companies = get_user_companies_by_telegram(telegram_id)
+        if len(companies) > 1:
+            await ask_user_to_select_company(update, context, companies)
+        else:
+            if companies:
+                context.user_data['company_id'] = companies[0]['id']
+                context.user_data['company_name'] = companies[0]['name']
+            await update.message.reply_text("✅ تم ربط حسابك بنجاح! تقدر دلوقتي تختار الأوامر من القائمة:\n/3mlaa\n/mwrdeen\n/mwzfeen\n/dakhl\n/sarf\n/taqarir\n/eedadat\n/company")
     elif res == "invalid":
         await update.message.reply_text("❌ كلمة المرور غلط. تأكد منها وابعتها تاني:")
     elif res == "linked":
@@ -1041,6 +1101,7 @@ app = ApplicationBuilder().token(TOKEN).build()
 
 entry_points_list = [
     CommandHandler("start", start),
+    CommandHandler("company", select_company_command),
     CommandHandler("3mlaa", ameel_menu),
     CommandHandler("mwrdeen", mwrd_menu),
     CommandHandler("mwzfeen", mwzf_menu),

@@ -43,7 +43,6 @@ def init_db():
             c.execute("""
                 CREATE TABLE bot_users (
                     id SERIAL PRIMARY KEY,
-                    company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,
                     username TEXT NOT NULL,
                     password TEXT UNIQUE NOT NULL,
                     telegram_id BIGINT UNIQUE,
@@ -54,13 +53,21 @@ def init_db():
             c.execute("""
                 CREATE TABLE IF NOT EXISTS bot_users (
                     id SERIAL PRIMARY KEY,
-                    company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,
                     username TEXT NOT NULL,
                     password TEXT UNIQUE NOT NULL,
                     telegram_id BIGINT UNIQUE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS user_companies (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES bot_users(id) ON DELETE CASCADE,
+                company_id INTEGER REFERENCES companies(id) ON DELETE CASCADE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, company_id)
+            )
+        """)
 
         # === الجداول الموجودة ===
         c.execute("""
@@ -164,6 +171,15 @@ def init_db():
             for t in tables:
                 c.execute(f"UPDATE {t} SET company_id = %s WHERE company_id IS NULL", (cid,))
 
+        # === Migration: bot_users القديمة -> user_companies ===
+        c.execute("""
+            INSERT INTO user_companies (user_id, company_id)
+            SELECT id, company_id
+            FROM bot_users
+            WHERE company_id IS NOT NULL
+            ON CONFLICT (user_id, company_id) DO NOTHING
+        """)
+
         # === تعديل Unique Constraints ===
         c.execute("ALTER TABLE persons DROP CONSTRAINT IF EXISTS persons_name_type_key")
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS persons_name_type_company_idx ON persons(name, type, company_id)")
@@ -186,10 +202,62 @@ def init_db():
 def get_user_company_id(telegram_id):
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT company_id FROM bot_users WHERE telegram_id=%s", (telegram_id,))
+    c.execute("""
+        SELECT uc.company_id
+        FROM bot_users bu
+        JOIN user_companies uc ON uc.user_id = bu.id
+        WHERE bu.telegram_id=%s
+        ORDER BY uc.company_id
+        LIMIT 1
+    """, (telegram_id,))
     row = c.fetchone()
     conn.close()
     return row['company_id'] if row else None
+
+def get_user_companies_by_telegram(telegram_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        SELECT c.id, c.name
+        FROM bot_users bu
+        JOIN user_companies uc ON uc.user_id = bu.id
+        JOIN companies c ON c.id = uc.company_id
+        WHERE bu.telegram_id = %s
+        ORDER BY c.name
+    """, (telegram_id,))
+    rows = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return rows
+
+def get_user_companies(user_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        SELECT c.id, c.name
+        FROM user_companies uc
+        JOIN companies c ON c.id = uc.company_id
+        WHERE uc.user_id = %s
+        ORDER BY c.name
+    """, (user_id,))
+    rows = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return rows
+
+def authenticate_dashboard_user(password):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id, username FROM bot_users WHERE password=%s", (password,))
+    row = c.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def user_has_company(user_id, company_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT 1 FROM user_companies WHERE user_id=%s AND company_id=%s", (user_id, company_id))
+    row = c.fetchone()
+    conn.close()
+    return bool(row)
 
 def add_company(name, password):
     conn = get_db()
@@ -210,9 +278,10 @@ def get_all_companies():
     c = conn.cursor()
     c.execute("""
         SELECT c.id, c.name, c.dashboard_password,
-               COUNT(b.telegram_id) as user_count
+               COUNT(DISTINCT bu.id) as user_count
         FROM companies c
-        LEFT JOIN bot_users b ON c.id = b.company_id
+        LEFT JOIN user_companies uc ON c.id = uc.company_id
+        LEFT JOIN bot_users bu ON bu.id = uc.user_id
         GROUP BY c.id, c.name, c.dashboard_password
         ORDER BY c.id
     """)
@@ -224,8 +293,23 @@ def add_user_account(company_id, username, password):
     conn = get_db()
     c = conn.cursor()
     try:
-        c.execute("INSERT INTO bot_users (company_id, username, password) VALUES (%s, %s, %s)",
-                  (company_id, username, password))
+        c.execute("SELECT id FROM bot_users WHERE password=%s", (password,))
+        user_row = c.fetchone()
+        if user_row:
+            user_id = user_row['id']
+            c.execute(
+                "INSERT INTO user_companies (user_id, company_id) VALUES (%s, %s) ON CONFLICT (user_id, company_id) DO NOTHING",
+                (user_id, company_id)
+            )
+            conn.commit()
+            return c.rowcount > 0
+
+        c.execute(
+            "INSERT INTO bot_users (username, password) VALUES (%s, %s) RETURNING id",
+            (username, password)
+        )
+        user_id = c.fetchone()['id']
+        c.execute("INSERT INTO user_companies (user_id, company_id) VALUES (%s, %s)", (user_id, company_id))
         conn.commit()
         return True
     except (psycopg2.errors.UniqueViolation, psycopg2.IntegrityError):
@@ -295,7 +379,13 @@ def authenticate_company(company_name, password):
 def get_company_users(company_id):
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT id, username, password, telegram_id FROM bot_users WHERE company_id=%s", (company_id,))
+    c.execute("""
+        SELECT bu.id, bu.username, bu.password, bu.telegram_id
+        FROM user_companies uc
+        JOIN bot_users bu ON bu.id = uc.user_id
+        WHERE uc.company_id=%s
+        ORDER BY bu.id
+    """, (company_id,))
     rows = [dict(r) for r in c.fetchall()]
     conn.close()
     return rows

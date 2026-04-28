@@ -3,7 +3,7 @@ from database import (
     get_balance, get_clients_total, get_suppliers_total,
     get_all_clients, get_all_suppliers, get_person_balance,
     get_weekly_employees_report, get_daily_khazna_report,
-    get_db, authenticate_company,
+    get_db, authenticate_dashboard_user, get_user_companies, user_has_company,
     add_client, add_supplier, add_employee, add_employee_transaction,
     add_masrof_edari, add_masrof_okhra, add_transaction, get_all_bands
 )
@@ -161,14 +161,66 @@ LOGIN_HTML = r'''<!DOCTYPE html>
     {% endif %}
     <form method="POST">
       <div class="input-group">
-        <label>اسم الشركة</label>
-        <input type="text" name="company_name" required autocomplete="off">
-      </div>
-      <div class="input-group">
         <label>كلمة المرور</label>
         <input type="password" name="password" required>
       </div>
       <button type="submit" class="login-btn">دخول</button>
+    </form>
+  </div>
+</body>
+</html>'''
+
+SELECT_COMPANY_HTML = r'''<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>اختيار الشركة</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Cairo', sans-serif;
+    background: #0a0e1a;
+    color: #f1f5f9;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+  }
+  .card {
+    background: rgba(17, 24, 39, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 28px;
+    border-radius: 16px;
+    width: 100%;
+    max-width: 460px;
+  }
+  h2 { font-size: 22px; margin-bottom: 16px; text-align: center; }
+  .sub { font-size: 13px; color: #94a3b8; margin-bottom: 16px; text-align: center; }
+  .btn {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #1e2d45;
+    border-radius: 10px;
+    background: #0f172a;
+    color: #fff;
+    cursor: pointer;
+    font-family: 'Cairo', sans-serif;
+    font-weight: 700;
+    margin-bottom: 10px;
+  }
+  .btn:hover { border-color: #3b82f6; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h2>اختيار الشركة</h2>
+    <div class="sub">اختار الشركة اللي عايز تفتح الداشبورد عليها</div>
+    <form method="POST">
+      {% for company in companies %}
+      <button class="btn" type="submit" name="company_id" value="{{ company.id }}">{{ company.name }}</button>
+      {% endfor %}
     </form>
   </div>
 </body>
@@ -472,6 +524,7 @@ tr:hover td{background:rgba(59,130,246,0.04);}
     <div class="nav-item" onclick="showPage('daily',this)"><span class="nav-icon">📅</span>التقرير اليومي</div>
   </nav>
   <div class="sidebar-footer">
+    <a href="/select-company" class="btn" style="width:100%; margin-bottom:8px; text-align:center; display:inline-block; text-decoration:none;">تغيير الشركة</a>
     <a href="/logout" class="btn danger" style="width:100%; margin-top:8px;">تسجيل خروج</a>
   </div>
 </aside>
@@ -1094,18 +1147,58 @@ def _get_date_range(default_days=30):
 def login():
     error = None
     if request.method == 'POST':
-        company_name = request.form.get('company_name', '').strip()
         password = request.form.get('password', '').strip()
-        
-        company = authenticate_company(company_name, password)
-        if company:
-            session['company_id'] = company['id']
-            session['company_name'] = company['name']
-            return redirect(url_for('index'))
+
+        user = authenticate_dashboard_user(password)
+        if user:
+            companies = get_user_companies(user['id'])
+            if not companies:
+                error = "هذا المستخدم غير مربوط بأي شركة"
+                return render_template_string(LOGIN_HTML, error=error)
+
+            session.clear()
+            session['user_id'] = user['id']
+            session['username'] = user.get('username', '')
+            if len(companies) == 1:
+                session['company_id'] = companies[0]['id']
+                session['company_name'] = companies[0]['name']
+                return redirect(url_for('index'))
+            return redirect(url_for('select_company'))
         else:
-            error = "اسم الشركة أو كلمة المرور غير صحيحة"
-            
+            error = "كلمة المرور غير صحيحة"
+
     return render_template_string(LOGIN_HTML, error=error)
+
+@app.route('/select-company', methods=['GET', 'POST'])
+def select_company():
+    user_id = session.get('user_id')
+    if not user_id:
+        return redirect(url_for('login'))
+
+    companies = get_user_companies(user_id)
+    if not companies:
+        session.clear()
+        return redirect(url_for('login'))
+
+    if request.method == 'POST':
+        try:
+            company_id = int(request.form.get('company_id', '0'))
+        except ValueError:
+            company_id = 0
+
+        if company_id and user_has_company(user_id, company_id):
+            chosen = next((c for c in companies if c['id'] == company_id), None)
+            if chosen:
+                session['company_id'] = chosen['id']
+                session['company_name'] = chosen['name']
+                return redirect(url_for('index'))
+
+    if len(companies) == 1:
+        session['company_id'] = companies[0]['id']
+        session['company_name'] = companies[0]['name']
+        return redirect(url_for('index'))
+
+    return render_template_string(SELECT_COMPANY_HTML, companies=companies)
 
 @app.route('/logout')
 def logout():
