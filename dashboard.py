@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, render_template_string, request, session, redirect, url_for
+from flask import Flask, jsonify, render_template_string, request, session, redirect, url_for, Response
 from database import (
     get_balance, get_clients_total, get_suppliers_total,
     get_all_clients, get_all_suppliers, get_person_balance,
@@ -11,6 +11,10 @@ from database import (
 from datetime import date, timedelta
 from functools import wraps
 import os
+import io
+import html
+import re
+from urllib.parse import quote
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super_secret_default_key_123")
@@ -314,12 +318,15 @@ body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);min-h
   font-family:'Cairo',sans-serif;font-size:12px;font-weight:600;
   transition:all 0.2s;white-space:nowrap;
 }
-.btn:hover{border-color:var(--accent);color:var(--accent);}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:white;}
-.btn.primary:hover{background:#2563eb;}
-.btn.danger{background:var(--red);border-color:var(--red);color:white;text-decoration:none;text-align:center;display:inline-block;}
-.btn.danger:hover{background:#dc2626;}
-.btn-group{display:flex;gap:6px;flex-wrap:wrap;}
+  .btn:hover{border-color:var(--accent);color:var(--accent);}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:white;}
+  .btn.primary:hover{background:#2563eb;}
+  .btn.danger{background:var(--red);border-color:var(--red);color:white;text-decoration:none;text-align:center;display:inline-block;}
+  .btn.danger:hover{background:#dc2626;}
+  .btn.small{padding:7px 10px;font-size:12px;border-radius:8px;}
+  .export-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+  .row-actions{display:flex;gap:6px;flex-wrap:wrap;}
+  .btn-group{display:flex;gap:6px;flex-wrap:wrap;}
 .quick-btn{
   padding:5px 10px;border-radius:20px;font-size:11px;font-weight:700;
   background:var(--surface2);border:1px solid var(--border);color:var(--text3);
@@ -570,6 +577,10 @@ tr:hover td{background:rgba(59,130,246,0.04);}
     <input type="date" class="date-input" id="ov-from">
     <input type="date" class="date-input" id="ov-to">
     <button class="btn primary" onclick="loadOverview()">بحث</button>
+    <div class="export-actions">
+      <button class="btn small" onclick="openReportExport('overview','pdf')">PDF</button>
+      <button class="btn small" onclick="openReportExport('overview','excel')">Excel</button>
+    </div>
   </div>
   <div class="cards-grid" id="overview-cards"><div class="loading"><span class="spinner"></span> جاري التحميل</div></div>
   <div class="sections-row">
@@ -597,6 +608,10 @@ tr:hover td{background:rgba(59,130,246,0.04);}
     <input type="date" class="date-input" id="cl-from">
     <input type="date" class="date-input" id="cl-to">
     <button class="btn primary" onclick="loadClients()">بحث</button>
+    <div class="export-actions">
+      <button class="btn small" onclick="openReportExport('clients','pdf')">PDF</button>
+      <button class="btn small" onclick="openReportExport('clients','excel')">Excel</button>
+    </div>
   </div>
   <div class="filter-bar">
     <span class="filter-label">فلتر:</span>
@@ -630,6 +645,10 @@ tr:hover td{background:rgba(59,130,246,0.04);}
     <input type="date" class="date-input" id="sp-from">
     <input type="date" class="date-input" id="sp-to">
     <button class="btn primary" onclick="loadSuppliers()">بحث</button>
+    <div class="export-actions">
+      <button class="btn small" onclick="openReportExport('suppliers','pdf')">PDF</button>
+      <button class="btn small" onclick="openReportExport('suppliers','excel')">Excel</button>
+    </div>
   </div>
   <div class="filter-bar">
     <span class="filter-label">فلتر:</span>
@@ -654,6 +673,10 @@ tr:hover td{background:rgba(59,130,246,0.04);}
   <div class="toolbar">
     <div><div class="toolbar-title">👷 الموظفين</div><button class="btn primary" style="margin-right:auto" onclick="openModal('modal-emp')">➕ موظف</button><button class="btn" style="background:var(--green);color:white;border:none;margin-right:8px;" onclick="openModal('modal-emp-tx')">💵 معاملة</button></div>
     <input type="text" class="date-input" id="emp-search" placeholder="🔍 بحث باسم..." oninput="filterEmpTable()" style="min-width:160px;">
+    <div class="export-actions">
+      <button class="btn small" onclick="openReportExport('employees','pdf')">PDF</button>
+      <button class="btn small" onclick="openReportExport('employees','excel')">Excel</button>
+    </div>
   </div>
   <div class="section">
     <div class="section-header"><span class="section-title">تقرير المرتبات الأسبوعي</span><span class="badge badge-yellow" id="emp-badge"></span></div>
@@ -673,6 +696,10 @@ tr:hover td{background:rgba(59,130,246,0.04);}
     <input type="date" class="date-input" id="ex-from">
     <input type="date" class="date-input" id="ex-to">
     <button class="btn primary" onclick="loadExpenses()">بحث</button>
+    <div class="export-actions">
+      <button class="btn small" onclick="openReportExport('expenses','pdf')">PDF</button>
+      <button class="btn small" onclick="openReportExport('expenses','excel')">Excel</button>
+    </div>
   </div>
   <div class="sections-row">
     <div class="section">
@@ -691,6 +718,10 @@ tr:hover td{background:rgba(59,130,246,0.04);}
   <div class="toolbar">
     <div><div class="toolbar-title">📅 التقرير اليومي</div></div>
     <input type="date" class="date-input" id="daily-custom" onchange="loadDailyCustom()">
+    <div class="export-actions">
+      <button class="btn small" onclick="openReportExport('daily','pdf')">PDF</button>
+      <button class="btn small" onclick="openReportExport('daily','excel')">Excel</button>
+    </div>
   </div>
   <div class="section">
     <div class="day-selector" id="day-selector"></div>
@@ -967,6 +998,7 @@ let clientsData = [], suppliersData = [], empData = [];
 const fmt = n => Number(n).toLocaleString('ar-EG',{maximumFractionDigits:1}) + ' ج';
 const today = () => new Date().toISOString().split('T')[0];
 const daysAgo = d => { const dt = new Date(); dt.setDate(dt.getDate()-d); return dt.toISOString().split('T')[0]; };
+const jsArg = s => String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\r?\n/g, ' ');
 const COLORS = ['blue','green','yellow','purple','orange','red','cyan'];
 
 function toggleSidebar() {
@@ -1025,6 +1057,30 @@ async function postApi(endpoint, data) {
     return {success:false, error:'Unauthorized'};
   }
   return res.json();
+}
+
+function reportDates(report) {
+  if (report === 'overview') return [document.getElementById('ov-from').value, document.getElementById('ov-to').value];
+  if (report === 'clients') return [document.getElementById('cl-from').value, document.getElementById('cl-to').value];
+  if (report === 'suppliers') return [document.getElementById('sp-from').value, document.getElementById('sp-to').value];
+  if (report === 'expenses') return [document.getElementById('ex-from').value, document.getElementById('ex-to').value];
+  if (report === 'employees') return [daysAgo(7), today()];
+  if (report === 'daily') {
+    const d = document.getElementById('daily-custom').value || today();
+    return [d, d];
+  }
+  return [daysAgo(30), today()];
+}
+
+function openReportExport(report, fmt) {
+  const [from, to] = reportDates(report);
+  window.open(`/export/report/${report}/${fmt}?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, '_blank');
+}
+
+function openPersonExport(kind, name, fmt) {
+  const from = kind === 'client' ? document.getElementById('cl-from').value : document.getElementById('sp-from').value;
+  const to = kind === 'client' ? document.getElementById('cl-to').value : document.getElementById('sp-to').value;
+  window.open(`/export/person/${kind}/${fmt}?name=${encodeURIComponent(name)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, '_blank');
 }
 
 // ===== Transactions Page =====
@@ -1330,14 +1386,15 @@ async function loadClients() {
 function renderClientsTable(data) {
   if (!data.length) { document.getElementById('clients-table').innerHTML = '<div class="empty">مفيش عملاء</div>'; return; }
   let totalDebt = 0;
-  let h = '<table><thead><tr><th>العميل</th><th>الحالة</th><th>الرصيد</th></tr></thead><tbody>';
+  let h = '<table><thead><tr><th>العميل</th><th>الحالة</th><th>الرصيد</th><th>تصدير الفترة</th></tr></thead><tbody>';
   data.forEach(c => {
     let cls, txt;
     if(c.balance>0){cls='tag-debt';txt='عليه';totalDebt+=c.balance;}
     else if(c.balance<0){cls='tag-credit';txt='ليه عندنا';}
     else{cls='tag-zero';txt='صفر';}
     const ac = c.balance>0?'amt-neg':c.balance<0?'amt-pos':'amt-neu';
-    h += `<tr><td><strong>${c.name}</strong></td><td><span class="tag ${cls}">${txt}</span></td><td class="${ac}">${fmt(Math.abs(c.balance))}</td></tr>`;
+    const nameArg = jsArg(c.name);
+    h += `<tr><td><strong>${c.name}</strong></td><td><span class="tag ${cls}">${txt}</span></td><td class="${ac}">${fmt(Math.abs(c.balance))}</td><td><div class="row-actions"><button class="btn small" onclick="openPersonExport('client','${nameArg}','pdf')">PDF</button><button class="btn small" onclick="openPersonExport('client','${nameArg}','excel')">Excel</button></div></td></tr>`;
   });
   h += '</tbody></table>';
   document.getElementById('clients-table').innerHTML = h;
@@ -1373,14 +1430,15 @@ async function loadSuppliers() {
 function renderSuppliersTable(data) {
   if (!data.length) { document.getElementById('suppliers-table').innerHTML = '<div class="empty">مفيش موردين</div>'; return; }
   let total = 0;
-  let h = '<table><thead><tr><th>المورد</th><th>الحالة</th><th>الرصيد</th></tr></thead><tbody>';
+  let h = '<table><thead><tr><th>المورد</th><th>الحالة</th><th>الرصيد</th><th>تصدير الفترة</th></tr></thead><tbody>';
   data.forEach(s => {
     let cls, txt;
     if(s.balance>0){cls='tag-debt';txt='ليه علينا';total+=s.balance;}
     else if(s.balance<0){cls='tag-credit';txt='دفعنا زيادة';}
     else{cls='tag-zero';txt='صفر';}
     const ac = s.balance>0?'amt-neg':'amt-neu';
-    h += `<tr><td><strong>${s.name}</strong></td><td><span class="tag ${cls}">${txt}</span></td><td class="${ac}">${fmt(Math.abs(s.balance))}</td></tr>`;
+    const nameArg = jsArg(s.name);
+    h += `<tr><td><strong>${s.name}</strong></td><td><span class="tag ${cls}">${txt}</span></td><td class="${ac}">${fmt(Math.abs(s.balance))}</td><td><div class="row-actions"><button class="btn small" onclick="openPersonExport('supplier','${nameArg}','pdf')">PDF</button><button class="btn small" onclick="openPersonExport('supplier','${nameArg}','excel')">Excel</button></div></td></tr>`;
   });
   h += '</tbody></table>';
   document.getElementById('suppliers-table').innerHTML = h;
@@ -1514,6 +1572,122 @@ def _get_date_range(default_days=30):
     date_from = request.args.get('from', str(date.today() - timedelta(days=default_days)))
     date_to = request.args.get('to', str(date.today()))
     return date_from, date_to
+
+def _money(value):
+    return f"{float(value or 0):,.2f}"
+
+def _safe_filename(value):
+    cleaned = re.sub(r'[\\/:*?"<>|]+', '-', str(value)).strip()
+    return cleaned or 'report'
+
+def _person_type_from_kind(kind):
+    if kind == 'client':
+        return 'عميل', 'عميل'
+    if kind == 'supplier':
+        return 'مورد', 'مورد'
+    return None, None
+
+def _transaction_totals(rows):
+    dues = sum(float(r['amount'] or 0) for r in rows if r['type'] in ('دين', 'مديونية'))
+    payments = sum(float(r['amount'] or 0) for r in rows if r['type'] in ('دفع', 'خصم'))
+    return dues, payments, dues - payments
+
+def _excel_response(title, subtitle, headers, rows, filename):
+    html_rows = ''.join(
+        '<tr>' + ''.join(f'<td>{html.escape(str(cell))}</td>' for cell in row) + '</tr>'
+        for row in rows
+    )
+    html_doc = f"""<!doctype html>
+<html lang="ar" dir="rtl">
+<head><meta charset="utf-8"><style>
+body{{font-family:Tahoma,Arial,sans-serif;direction:rtl}}
+table{{border-collapse:collapse;width:100%}}
+th,td{{border:1px solid #999;padding:7px;text-align:center}}
+th{{background:#d9eaf7;font-weight:bold}}
+.title{{font-size:18px;font-weight:bold;margin-bottom:6px}}
+.sub{{margin-bottom:12px;color:#444}}
+</style></head>
+<body>
+<div class="title">{html.escape(title)}</div>
+<div class="sub">{html.escape(subtitle)}</div>
+<table><thead><tr>{''.join(f'<th>{html.escape(str(h))}</th>' for h in headers)}</tr></thead><tbody>{html_rows}</tbody></table>
+</body></html>"""
+    safe = _safe_filename(filename)
+    encoded_name = quote(safe)
+    return Response(
+        '\ufeff' + html_doc,
+        mimetype='application/vnd.ms-excel; charset=utf-8',
+        headers={'Content-Disposition': f"attachment; filename*=UTF-8''{encoded_name}.xls"}
+    )
+
+def _pdf_response(title, subtitle, headers, rows, filename):
+    try:
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Spacer, Paragraph
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        import arabic_reshaper
+        from bidi.algorithm import get_display
+    except ImportError:
+        return jsonify({'error': 'ReportLab غير متاح'}), 500
+
+    font_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Amiri-Regular.ttf")
+    font_name = 'Helvetica'
+    if os.path.exists(font_path):
+        try:
+            pdfmetrics.registerFont(TTFont('Amiri', font_path))
+            font_name = 'Amiri'
+        except Exception:
+            font_name = 'Helvetica'
+
+    def ar(value):
+        text = str(value)
+        try:
+            return get_display(arabic_reshaper.reshape(text))
+        except Exception:
+            return text
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), rightMargin=24, leftMargin=24, topMargin=24, bottomMargin=24)
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('ArabicTitle', parent=styles['Title'], fontName=font_name, alignment=1, fontSize=16)
+    sub_style = ParagraphStyle('ArabicSub', parent=styles['Normal'], fontName=font_name, alignment=1, fontSize=11)
+    elements = [Paragraph(ar(title), title_style), Paragraph(ar(subtitle), sub_style), Spacer(1, 12)]
+
+    data = [[ar(h) for h in headers]]
+    data.extend([[ar(cell) for cell in row] for row in rows])
+    table = Table(data, repeatRows=1)
+    table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, -1), font_name),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f4e79')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f7fb')]),
+        ('GRID', (0, 0), (-1, -1), 0.35, colors.grey),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+    ]))
+    elements.append(table)
+    doc.build(elements)
+    buffer.seek(0)
+    safe = _safe_filename(filename)
+    encoded_name = quote(safe)
+    return Response(
+        buffer.getvalue(),
+        mimetype='application/pdf',
+        headers={'Content-Disposition': f"inline; filename*=UTF-8''{encoded_name}.pdf"}
+    )
+
+def _export_response(fmt, title, subtitle, headers, rows, filename):
+    if fmt == 'excel':
+        return _excel_response(title, subtitle, headers, rows, filename)
+    if fmt == 'pdf':
+        return _pdf_response(title, subtitle, headers, rows, filename)
+    return jsonify({'error': 'صيغة غير مدعومة'}), 400
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -1827,6 +2001,114 @@ def api_daily(selected_date):
         records, total_in, total_out = get_daily_khazna_report(selected_date, company_id)
         result = {'records': records, 'total_in': total_in, 'total_out': total_out, 'net': total_in - total_out}
         return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/export/report/<report_kind>/<fmt>')
+@login_required
+def export_report(report_kind, fmt):
+    company_id = session['company_id']
+    date_from, date_to = _get_date_range(30)
+    company_name = session.get('company_name', 'الشركة')
+    subtitle = f"{company_name} | من {date_from} إلى {date_to}"
+
+    try:
+        if report_kind == 'overview':
+            balance = get_balance(company_id)
+            _, period_in, period_out = get_khazna_range(date_from, date_to, company_id)
+            suppliers_debt = sum(max(get_person_balance("مورد", n, company_id), 0) for n in get_all_suppliers(company_id))
+            clients_credit = sum(max(get_person_balance("عميل", n, company_id), 0) for n in get_all_clients(company_id))
+            salary_due = sum(max(e['data']['net'], 0) for e in get_weekly_employees_report(company_id))
+            rows = [
+                ['رصيد الخزنة الكلي', _money(balance)],
+                ['دخل الفترة', _money(period_in)],
+                ['صرف الفترة', _money(period_out)],
+                ['صافي الفترة', _money(period_in - period_out)],
+                ['مديونيات الموردين', _money(suppliers_debt)],
+                ['فلوس العملاء', _money(clients_credit)],
+                ['مرتبات مستحقة', _money(salary_due)],
+            ]
+            return _export_response(fmt, 'تقرير النظرة العامة', subtitle, ['البند', 'القيمة'], rows, 'overview-report')
+
+        if report_kind == 'clients':
+            rows = []
+            for name in get_all_clients(company_id):
+                transactions = get_person_transactions_range(name, 'عميل', date_from, date_to, company_id)
+                dues, payments, net = _transaction_totals(transactions)
+                rows.append([name, _money(dues), _money(payments), _money(net), _money(get_person_balance('عميل', name, company_id))])
+            return _export_response(fmt, 'تقرير العملاء', subtitle, ['العميل', 'ديون الفترة', 'مدفوعات/خصومات الفترة', 'صافي الفترة', 'الرصيد الحالي'], rows, 'clients-report')
+
+        if report_kind == 'suppliers':
+            rows = []
+            for name in get_all_suppliers(company_id):
+                transactions = get_person_transactions_range(name, 'مورد', date_from, date_to, company_id)
+                dues, payments, net = _transaction_totals(transactions)
+                rows.append([name, _money(dues), _money(payments), _money(net), _money(get_person_balance('مورد', name, company_id))])
+            return _export_response(fmt, 'تقرير الموردين', subtitle, ['المورد', 'مديونيات الفترة', 'مدفوعات الفترة', 'صافي الفترة', 'الرصيد الحالي'], rows, 'suppliers-report')
+
+        if report_kind == 'expenses':
+            bands, okhra = get_masrof_range(date_from, date_to, company_id)
+            rows = [[band, _money(total)] for band, total in bands.items()]
+            rows.append(['مصروفات أخرى', _money(okhra)])
+            rows.append(['الإجمالي', _money(sum(bands.values()) + okhra)])
+            return _export_response(fmt, 'تقرير المصروفات', subtitle, ['البند', 'الإجمالي'], rows, 'expenses-report')
+
+        if report_kind == 'employees':
+            rows = []
+            for employee in get_weekly_employees_report(company_id):
+                data = employee['data']
+                rows.append([
+                    employee['name'],
+                    _money(data.get('salary', 0)),
+                    data.get('weeks', 0),
+                    _money(data.get('total_salary_due', 0)),
+                    _money(data.get('advances', 0)),
+                    _money(data.get('deductions', 0)),
+                    _money(data.get('bonuses', 0)),
+                    _money(data.get('total_paid', 0)),
+                    _money(data.get('net', 0)),
+                ])
+            return _export_response(fmt, 'تقرير المرتبات الأسبوعي', company_name, ['الموظف', 'المرتب', 'أسابيع', 'المستحق', 'سلف', 'خصم', 'مكافآت', 'تم صرفه', 'الصافي'], rows, 'employees-weekly-report')
+
+        if report_kind == 'daily':
+            selected_date = date_from
+            records, total_in, total_out = get_daily_khazna_report(selected_date, company_id)
+            rows = [[r['type'], _money(r['amount']), r.get('description') or '-'] for r in records]
+            rows.extend([
+                ['إجمالي الدخل', _money(total_in), ''],
+                ['إجمالي الصرف', _money(total_out), ''],
+                ['الصافي', _money(total_in - total_out), ''],
+            ])
+            return _export_response(fmt, f'التقرير اليومي {selected_date}', company_name, ['النوع', 'المبلغ', 'الوصف'], rows, f'daily-report-{selected_date}')
+
+        return jsonify({'error': 'تقرير غير معروف'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/export/person/<person_kind>/<fmt>')
+@login_required
+def export_person(person_kind, fmt):
+    company_id = session['company_id']
+    date_from, date_to = _get_date_range(30)
+    name = request.args.get('name', '').strip()
+    person_type, label = _person_type_from_kind(person_kind)
+    if not name or not person_type:
+        return jsonify({'error': 'بيانات غير صحيحة'}), 400
+
+    try:
+        transactions = get_person_transactions_range(name, person_type, date_from, date_to, company_id)
+        dues, payments, net = _transaction_totals(transactions)
+        current_balance = get_person_balance(person_type, name, company_id)
+        rows = [[t['date'], t['type'], _money(t['amount'])] for t in transactions]
+        rows.extend([
+            ['الإجمالي المستحق في الفترة', '', _money(dues)],
+            ['إجمالي المدفوع/الخصم في الفترة', '', _money(payments)],
+            ['صافي حركات الفترة', '', _money(net)],
+            ['الرصيد الحالي', '', _money(current_balance)],
+        ])
+        subtitle = f"{session.get('company_name', 'الشركة')} | من {date_from} إلى {date_to}"
+        filename = f"{label}-{name}-{date_from}-{date_to}"
+        return _export_response(fmt, f'كشف تفصيلي {label}: {name}', subtitle, ['التاريخ', 'نوع الحركة', 'المبلغ'], rows, filename)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
