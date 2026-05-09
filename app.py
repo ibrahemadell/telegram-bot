@@ -28,15 +28,7 @@ def parse_amount(text):
     raise ValueError("Invalid number format")
 
 TOKEN = os.environ.get("TOKEN")
-if not TOKEN:
-    raise ValueError("TOKEN environment variable is required")
 
-print("=" * 60)
-print("🚀 تشغيل البوت")
-print(f"📅 الوقت: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-print("=" * 60)
-
-init_db()
 
 (MAIN_ACTION, AMOUNT, DESCRIPTION, NAME, NAME_AMOUNT, NAME_AMOUNT_TYPE,
  SELECT_RECORD, SARF_TYPE, MASROF_TYPE, MWZF_SALARY, MWZF_ACTION,
@@ -869,6 +861,15 @@ async def error_callback(update, context):
 # ============ تشغيل البوت بـ Polling (للتطوير المحلي فقط) ============
 
 if __name__ == "__main__":
+    if not TOKEN:
+        raise ValueError("TOKEN environment variable is required")
+    from database import init_db
+    init_db()
+    print("=" * 60)
+    print("🚀 تشغيل البوت")
+    from datetime import datetime
+    print(f"📅 الوقت: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("=" * 60)
     polling_app = ApplicationBuilder().token(TOKEN).build()
     polling_app.add_handler(conv_handler)
     polling_app.add_error_handler(error_callback)

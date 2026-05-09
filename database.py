@@ -14,11 +14,12 @@ except ImportError:
     REPORTLAB_AVAILABLE = False
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
-if not DATABASE_URL:
-    raise ValueError("❌ DATABASE_URL environment variable is required")
 
 def get_db():
-    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    _url = os.environ.get("DATABASE_URL") or DATABASE_URL
+    if not _url:
+        raise ValueError("❌ DATABASE_URL environment variable is required")
+    conn = psycopg2.connect(_url, cursor_factory=psycopg2.extras.RealDictCursor)
     return conn
 
 def init_db():
