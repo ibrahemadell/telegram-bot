@@ -821,9 +821,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ تم الإلغاء", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
-# ============ تشغيل البوت ============
-
-app = ApplicationBuilder().token(TOKEN).build()
+# ============ تعريف الـ Handlers (قابلة للاستيراد) ============
 
 entry_points_list = [
     CommandHandler("3mlaa", ameel_menu),
@@ -857,8 +855,6 @@ conv_handler = ConversationHandler(
     fallbacks=entry_points_list + [CommandHandler("cancel", cancel)]
 )
 
-app.add_handler(conv_handler)
-
 async def error_callback(update, context):
     error = context.error
     if isinstance(error, Conflict):
@@ -870,12 +866,15 @@ async def error_callback(update, context):
         import traceback
         traceback.print_exc()
 
-app.add_error_handler(error_callback)
+# ============ تشغيل البوت بـ Polling (للتطوير المحلي فقط) ============
 
 if __name__ == "__main__":
+    polling_app = ApplicationBuilder().token(TOKEN).build()
+    polling_app.add_handler(conv_handler)
+    polling_app.add_error_handler(error_callback)
     try:
-        print("✅ البوت شغال!")
-        app.run_polling(allowed_updates=Update.ALL_TYPES)
+        print("✅ البوت شغال بـ Polling!")
+        polling_app.run_polling(allowed_updates=Update.ALL_TYPES)
     except KeyboardInterrupt:
         print("\n✋ تم إيقاف البوت")
     except Exception as e:
