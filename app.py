@@ -827,6 +827,8 @@ entry_points_list = [
 
 conv_handler = ConversationHandler(
     entry_points=entry_points_list,
+    name="main_conv",
+    persistent=True,
     states={
         MAIN_ACTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_main_action)],
         AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_amount)],

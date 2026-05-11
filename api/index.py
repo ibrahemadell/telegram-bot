@@ -15,10 +15,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import asyncio
 import time
+import threading
 from datetime import date, timedelta
 
 from flask import Flask, request, jsonify, render_template_string
 from telegram import Update
+from telegram.ext import PicklePersistence
 from telegram.ext import ApplicationBuilder
 
 from database import (
@@ -102,24 +104,32 @@ def get_masrof_range(date_from, date_to):
 
 # ============ Async Helper ============
 def run_async(coro):
-    """تشغيل async coroutine من بيئة sync"""
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # إذا كان الـ loop شغال (مثلاً في بعض بيئات Vercel)
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                future = pool.submit(asyncio.run, coro)
-                return future.result()
-        else:
-            return loop.run_until_complete(coro)
-    except RuntimeError:
-        return asyncio.run(coro)
+    """تشغيل async coroutine من بيئة sync بأمان في Vercel threads"""
+    result_holder = [None]
+    exception_holder = [None]
+
+    def runner():
+        try:
+            result_holder[0] = asyncio.run(coro)
+        except Exception as e:
+            exception_holder[0] = e
+
+    t = threading.Thread(target=runner)
+    t.start()
+    t.join()
+
+    if exception_holder[0]:
+        raise exception_holder[0]
+    return result_holder[0]
 
 # ============ Telegram App Builder ============
+# مسار persistence للحفاظ على user_data بين الـ requests
+PERSISTENCE_PATH = "/tmp/tg_persistence"
+
 def get_telegram_app():
-    """إنشاء telegram application جديد مع الـ handlers"""
-    tg_app = ApplicationBuilder().token(TOKEN).build()
+    """إنشاء telegram application جديد مع الـ handlers وحفظ الـ state"""
+    persistence = PicklePersistence(filepath=PERSISTENCE_PATH)
+    tg_app = ApplicationBuilder().token(TOKEN).persistence(persistence).build()
     tg_app.add_handler(conv_handler)
     tg_app.add_error_handler(error_callback)
     return tg_app
